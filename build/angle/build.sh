@@ -27,3 +27,10 @@ for abi in x86_64 x86; do
     cp "$binary" "$stage/vendor/$libdir/egl/$lib"
   done
 done
+# Keep the newly linked ASTC decoder's license with distributed binaries.
+cat "$src/LICENSE" "$src/third_party/astc-encoder/src/LICENSE.txt" > "$stage/LICENSE"
+cat > "$stage/NOTICE" <<'EOF'
+ANGLE includes astc-encoder in decompression-only mode for ASTC-to-RGBA uploads.
+astc-encoder: Copyright 2020-2025 Arm Limited; Apache-2.0.
+ANGLE and decoder license texts are included in LICENSE.
+EOF
