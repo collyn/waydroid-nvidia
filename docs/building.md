@@ -57,9 +57,16 @@ clone → apply → build path locally.
    debugfs — no mounts, no root). Then `build/hwcomposer/build.sh` compiles
    and links with the NDK. Pins: `packaging/ci/hwc-pins.env`.
 5. **ANGLE** — pinned commit (`ANGLE_SHA` in `packaging/ci/pins.env`),
-   `gclient` checkout, `build/angle/args-x86{,_64}.gn`, ninja. CI builds
-   `out/AndroidX86` and `out/AndroidX64`; the checkout is heavy (~16 GB), so
-   it runs on a self-hosted runner with a persistent work area.
+   `build/angle/checkout.sh` with depot_tools on PATH, then
+   `build/angle/build.sh WORKSPACE/angle STAGE`. CI builds both
+   `out/AndroidX86` and `out/AndroidX64` on a hosted runner. The checkout
+   is heavy (~16 GB). Both GN configurations explicitly enable
+   `angle_has_astc_encoder`: Android disables it by default, but NVIDIA
+   lacks native ASTC and ASTC-only game atlases require the CPU-to-RGBA
+   fallback. Decoding happens at upload; rendering remains on the GPU.
+   `tests/astc-upload.c` verifies sampling all 28 LDR/sRGB formats inside
+   Android. The release must use this job's ANGLE, even when SurfaceFlinger
+   is obtained from the upstream fallback tarball.
 6. **surfaceflinger** — built from a LineageOS 20 tree
    (`build/lineage-20/build.sh sf`); CI runs it on the self-hosted runner
    that carries the ~150 GB synced tree. Note: AOSP's `envsetup.sh` is not
@@ -69,9 +76,9 @@ clone → apply → build path locally.
 
 ## CI notes
 
-- Hosted-runner jobs (mesa, virgl, gralloc, hwcomposer) run on every push.
-- Self-hosted jobs (ANGLE, surfaceflinger) run on tags and manual dispatch;
-  the runner is registered by the maintainer with the `lineage` label.
+- Hosted-runner jobs (mesa, virgl, gralloc, hwcomposer, ANGLE) run on every push.
+- SurfaceFlinger may be reused from a checksum-verified upstream release
+  when a self-hosted Lineage build artifact is unavailable.
 - Fork PRs require maintainer approval before any workflow runs
   (all-external-contributors policy) — never approve a run for a PR touching
   `.github/` without reading it.

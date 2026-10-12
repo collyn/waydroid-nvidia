@@ -102,6 +102,22 @@ Waydroid.
 
 ## Known failure modes
 
+### Missing game art, oversized atlas text on NVIDIA
+
+Some Cocos games ship only ASTC textures. NVIDIA desktop Vulkan GPUs do not
+support ASTC natively; ANGLE's Android default also omits the software decoder.
+The game may still launch but report no `astc` in `COMPRESSED_FORMATS`, then
+emit Cocos Error 3300 (atlas rect width exceeds the zero-width missing texture).
+This is distinct from a shader failure or device loss.
+
+Build both ANGLE ABIs with the checked-in `angle_has_astc_encoder = true`
+configuration. It enables the upstream CPU ASTC-to-RGBA upload fallback;
+drawing still uses NVIDIA. Do not replace this ANGLE with older release
+prebuilts or enable Venus's experimental ASTC compute emulation as a workaround.
+Run `tests/astc-upload.c` against the deployed ANGLE in Android: it checks the
+ASTC extension and actual sampled pixels for all 28 LDR/sRGB block formats.
+
+
 | Symptom | Cause | Fix |
 |---|---|---|
 | `waydroid session start` refuses: "Venus render server socket … not accepting connections" | patched session could not `systemctl --user restart wd-venus.service` (unit missing, or you ran `waydroid` under sudo so `--user` is root's manager) | Install the user unit, then `waydroid session start` as the desktop user. Do **not** `enable` wd-venus — leftover clients after a session bounce block the next SurfaceFlinger connect |
