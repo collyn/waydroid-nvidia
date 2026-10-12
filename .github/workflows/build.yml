@@ -49,6 +49,8 @@ jobs:
       - name: Build and verify both ABIs
         env:
           JOBS: '4'
+          # depot_tools also puts a bootstrap wrapper called ninja on PATH.
+          NINJA: /usr/bin/ninja
         run: build/angle/build.sh "$RUNNER_TEMP/angle-work/angle" "$PWD/angle-stage"
       - uses: actions/upload-artifact@v4
         with:

@@ -18,7 +18,8 @@ for abi in x86_64 x86; do
   (cd "$src" && buildtools/linux64/gn gen "out/$out")
   # GN must actually link the decoder, not merely accept an unused argument.
   rg -q 'ANGLE_HAS_ASTCENC' "$src/out/$out/obj/libANGLE.ninja"
-  ninja -C "$src/out/$out" -j "${JOBS:-8}" libEGL libGLESv1_CM libGLESv2
+  # depot_tools shadows ninja with a Python bootstrap wrapper; use distro Ninja.
+  "${NINJA:-/usr/bin/ninja}" -C "$src/out/$out" -j "${JOBS:-8}" libEGL libGLESv1_CM libGLESv2
   for lib in libEGL_angle.so libGLESv1_CM_angle.so libGLESv2_angle.so; do
     binary="$src/out/$out/$lib"
     readelf -h "$binary" | grep -q "Class:.*$class"
