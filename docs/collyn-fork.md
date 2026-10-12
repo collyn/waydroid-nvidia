@@ -44,6 +44,16 @@ AnvilDroid and are not part of this backend fork.
   same local-chain strategy as buffers, avoiding NVIDIA SYSMEM KIND faults.
   Per-allocation diagnostic spam and unused experimental fields are omitted.
 
+- **Window constructor event queue:** full UI can be created after the default
+  Wayland dispatch thread is running. Construction now waits for xdg configure
+  on a private queue, then restores its proxies to the default queue before
+  destroying the queue. The concurrent default dispatcher cannot consume those
+  construction configures while the caller waits with `windowsMutex` held.
+  During AnvilDroid integration, the CI HWC binary stalled SurfaceFlinger in
+  `window::create` → `wl_display_roundtrip_queue`; the old payload and the same
+  fork source built with existing static dependencies did not stall. This
+  change removes that shared-queue synchronization dependency.
+
 ## Validation performed
 
 On 2026-10-12, an Ubuntu 24.04 container with the host build dependencies

@@ -1502,7 +1502,7 @@ index 000b388..0409349 100644
                  m_draw_framebuffer_at = i;
              }
 diff --git a/hwcomposer/wayland-hwc.cpp b/hwcomposer/wayland-hwc.cpp
-index 0bd2f35..6fb3471 100644
+index 0bd2f35..4d6fe37 100644
 --- a/hwcomposer/wayland-hwc.cpp
 +++ b/hwcomposer/wayland-hwc.cpp
 @@ -52,6 +52,7 @@
@@ -1670,7 +1670,61 @@ index 0bd2f35..6fb3471 100644
  std::unique_ptr<window>
  window::create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color)
  {
-@@ -519,7 +635,12 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -479,11 +595,37 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+     if (!window)
+         return nullptr;
+ 
++    // Dispatch construction configures on this thread, independently of the
++    // active default-queue dispatcher and the windowsMutex held by callers.
++    struct configure_queue {
++        wl_event_queue *queue;
++        wl_proxy *proxies[5] = {};
++        size_t count = 0;
++        void add(void *proxy) {
++            if (!proxy) return;
++            auto p = static_cast<wl_proxy *>(proxy);
++            wl_proxy_set_queue(p, queue);
++            proxies[count++] = p;
++        }
++        void remove(void *proxy) {
++            for (size_t i = 0; i < count; ++i)
++                if (proxies[i] == proxy) proxies[i] = nullptr;
++        }
++        ~configure_queue() {
++            for (size_t i = 0; i < count; ++i)
++                if (proxies[i]) wl_proxy_set_queue(proxies[i], nullptr);
++            if (queue) wl_event_queue_destroy(queue);
++        }
++    } init_queue {wl_display_create_queue(display->display)};
++    if (!init_queue.queue) return nullptr;
++
+     window->display = display;
+     window->surface = wl_compositor_create_surface(display->compositor);
++    init_queue.add(window->surface);
+     wl_surface_set_user_data(window->surface, window.get());
+     if (display->viewporter)
+         window->viewport = wp_viewporter_get_viewport(display->viewporter, window->surface);
++    init_queue.add(window->viewport);
+     window->taskID = std::move(taskID);
+     window->dedicated_background_surface = true;
+     window->bg_buffer = nullptr;
+@@ -506,20 +648,28 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+         window->xdg_surface =
+                 xdg_wm_base_get_xdg_surface(display->wm_base, window->surface);
+         assert(window->xdg_surface);
++        init_queue.add(window->xdg_surface);
+         xdg_surface_add_listener(window->xdg_surface,
+                                      &xdg_surface_listener, window.get());
+ 
+         window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+         assert(window->xdg_toplevel);
++        init_queue.add(window->xdg_toplevel);
+         xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener, window.get());
+     } else if (display->shell) {
+         window->shell_surface =
+             wl_shell_get_shell_surface(display->shell, window->surface);
+         assert(window->shell_surface);
++        init_queue.add(window->shell_surface);
          wl_shell_surface_add_listener(window->shell_surface, &shell_surface_listener, window.get());
          wl_shell_surface_set_toplevel(window->shell_surface);
      } else {
@@ -1684,7 +1738,38 @@ index 0bd2f35..6fb3471 100644
      }
  
      if (display->isMaximized || calibrating) {
-@@ -597,14 +718,17 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -540,7 +690,8 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+     wl_surface_commit(window->surface);
+     // Wait for first configure event
+     do {
+-        wl_display_roundtrip(display->display);
++        if (wl_display_roundtrip_queue(display->display, init_queue.queue) < 0)
++            return nullptr;
+     } while (!window->configured);
+ 
+     if (calibrating) {
+@@ -549,6 +700,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+             // We only support one global scale
+             fs = wp_fractional_scale_manager_v1_get_fractional_scale(
+                     display->fractional_scale_manager, window->surface);
++            init_queue.add(fs);
+             wp_fractional_scale_v1_add_listener(fs, &fractional_scale_listener, display);
+         }
+ 
+@@ -561,9 +713,11 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+         if (window->viewport && display->req_width && display->req_height)
+             wp_viewport_set_destination(window->viewport, display->req_width, display->req_height);
+         wl_surface_commit(window->surface);
+-        wl_display_roundtrip(display->display);
++        if (wl_display_roundtrip_queue(display->display, init_queue.queue) < 0)
++            return nullptr;
+ 
+         if (fs) {
++            init_queue.remove(fs);
+             wp_fractional_scale_v1_destroy(fs);
+         }
+ 
+@@ -597,14 +751,17 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          wl_region_destroy(region);
      }
  
@@ -1704,7 +1789,7 @@ index 0bd2f35..6fb3471 100644
          wl_surface_commit(window->surface);
          return window;
      } else if (!use_subsurfaces) {
-@@ -615,16 +739,27 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -615,16 +772,27 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          wl_subsurface_set_desync(window->layers[0].subsurface);
      }
  
@@ -1737,7 +1822,7 @@ index 0bd2f35..6fb3471 100644
  
      return window;
  }
-@@ -732,6 +867,24 @@ ensure_pipe(struct display* display, int input_type)
+@@ -732,6 +900,24 @@ ensure_pipe(struct display* display, int input_type)
      event[n].value = value_;                       \
      n++;
  
@@ -1762,7 +1847,7 @@ index 0bd2f35..6fb3471 100644
  static void
  send_key_event(display *data, uint32_t key, wl_keyboard_key_state state)
  {
-@@ -856,6 +1009,9 @@ static const struct wl_keyboard_listener keyboard_listener = {
+@@ -856,6 +1042,9 @@ static const struct wl_keyboard_listener keyboard_listener = {
      keyboard_handle_repeat_info,
  };
  
@@ -1772,7 +1857,7 @@ index 0bd2f35..6fb3471 100644
  static void
  pointer_handle_enter(void *data, struct wl_pointer *,
                       uint32_t serial, struct wl_surface *surface,
-@@ -877,9 +1033,68 @@ pointer_handle_leave(void *data, struct wl_pointer *,
+@@ -877,9 +1066,68 @@ pointer_handle_leave(void *data, struct wl_pointer *,
                       uint32_t, struct wl_surface *)
  {
      struct display *display = (struct display *)data;
@@ -1841,7 +1926,7 @@ index 0bd2f35..6fb3471 100644
  static void
  pointer_handle_motion(void *data, struct wl_pointer *,
                        uint32_t, wl_fixed_t sx, wl_fixed_t sy)
-@@ -890,16 +1105,9 @@ pointer_handle_motion(void *data, struct wl_pointer *,
+@@ -890,16 +1138,9 @@ pointer_handle_motion(void *data, struct wl_pointer *,
      int x, y;
      unsigned int res, n = 0;
  
@@ -1858,7 +1943,7 @@ index 0bd2f35..6fb3471 100644
      x = wl_fixed_to_int(sx);
      y = wl_fixed_to_int(sy);
      if (display->scale != 1) {
-@@ -908,14 +1116,32 @@ pointer_handle_motion(void *data, struct wl_pointer *,
+@@ -908,14 +1149,32 @@ pointer_handle_motion(void *data, struct wl_pointer *,
      }
      x += display->layers[display->pointer_surface].x;
      y += display->layers[display->pointer_surface].y;
@@ -1895,7 +1980,7 @@ index 0bd2f35..6fb3471 100644
  
      res = write(display->input_fd[INPUT_POINTER], &event, sizeof(event));
      if (res < sizeof(event))
-@@ -934,6 +1160,9 @@ handle_relative_motion(void *data, struct zwp_relative_pointer_v1*,
+@@ -934,6 +1193,9 @@ handle_relative_motion(void *data, struct zwp_relative_pointer_v1*,
      static double acc_x = 0;
      static double acc_y = 0;
  
@@ -1905,7 +1990,7 @@ index 0bd2f35..6fb3471 100644
      if (ensure_pipe(display, INPUT_POINTER))
          return;
  
-@@ -970,12 +1199,33 @@ pointer_handle_button(void *data, struct wl_pointer *,
+@@ -970,12 +1232,33 @@ pointer_handle_button(void *data, struct wl_pointer *,
      struct timespec rt;
      unsigned int res, n = 0;
  
@@ -1940,7 +2025,7 @@ index 0bd2f35..6fb3471 100644
      if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
          ALOGE("%s:%d error in touch clock_gettime: %s",
                __FILE__, __LINE__, strerror(errno));
-@@ -999,6 +1249,9 @@ pointer_handle_axis(void *data, struct wl_pointer *,
+@@ -999,6 +1282,9 @@ pointer_handle_axis(void *data, struct wl_pointer *,
      double fVal = wl_fixed_to_double(value) / 10.0f;
      double step = 1.0f;
  
@@ -1950,7 +2035,7 @@ index 0bd2f35..6fb3471 100644
      if (ensure_pipe(display, INPUT_POINTER))
          return;
  
-@@ -1147,6 +1400,7 @@ touch_handle_down(void *data, struct wl_touch *,
+@@ -1147,6 +1433,7 @@ touch_handle_down(void *data, struct wl_touch *,
      }
      x += display->layers[surface].x;
      y += display->layers[surface].y;
@@ -1958,7 +2043,7 @@ index 0bd2f35..6fb3471 100644
  
      ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
      ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
-@@ -1219,6 +1473,7 @@ touch_handle_motion(void *data, struct wl_touch *,
+@@ -1219,6 +1506,7 @@ touch_handle_motion(void *data, struct wl_touch *,
          }
          x += display->layers[display->touch_surfaces[id]].x;
          y += display->layers[display->touch_surfaces[id]].y;
@@ -1966,7 +2051,7 @@ index 0bd2f35..6fb3471 100644
  
          ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
          ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
-@@ -1346,8 +1601,14 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
+@@ -1346,8 +1634,14 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
          d->ptrPrvX = 0;
          d->ptrPrvY = 0;
          d->reverseScroll = property_get_bool("persist.waydroid.reverse_scrolling", false);
@@ -1983,7 +2068,7 @@ index 0bd2f35..6fb3471 100644
          wl_pointer_add_listener(d->pointer, &pointer_listener, d);
      } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && d->pointer) {
          remove(INPUT_PIPE_NAME[INPUT_POINTER]);
-@@ -1475,10 +1736,12 @@ static const struct wl_output_listener output_listener = {
+@@ -1475,10 +1769,12 @@ static const struct wl_output_listener output_listener = {
  };
  
  static void
@@ -1998,7 +2083,7 @@ index 0bd2f35..6fb3471 100644
  }
  
  static const struct wp_presentation_listener presentation_listener = {
-@@ -1687,6 +1950,7 @@ tablet_tool_motion(void *data, struct zwp_tablet_tool_v2 *,
+@@ -1687,6 +1983,7 @@ tablet_tool_motion(void *data, struct zwp_tablet_tool_v2 *,
          }
          x += display->layers[display->tablet_surface].x;
          y += display->layers[display->tablet_surface].y;
@@ -2006,7 +2091,7 @@ index 0bd2f35..6fb3471 100644
  
          ADD_EVENT(EV_ABS, ABS_X, x);
          ADD_EVENT(EV_ABS, ABS_Y, y);
-@@ -2038,6 +2302,9 @@ void open_windows::erase(const key_type& key) {
+@@ -2038,6 +2335,9 @@ void open_windows::erase(const key_type& key) {
      }
  }
  
@@ -2016,7 +2101,7 @@ index 0bd2f35..6fb3471 100644
  static void* hwc_wayland_thread(void* data) {
      auto* display = static_cast<struct wl_display*>(data);
      int ret = 0;
-@@ -2047,9 +2314,40 @@ static void* hwc_wayland_thread(void* data) {
+@@ -2047,9 +2347,40 @@ static void* hwc_wayland_thread(void* data) {
      while (ret != -1)
          ret = wl_display_dispatch(display);
  
@@ -2060,7 +2145,7 @@ index 0bd2f35..6fb3471 100644
  }
  
  struct display *
-@@ -2064,9 +2362,18 @@ create_display(const char *gralloc)
+@@ -2064,9 +2395,18 @@ create_display(const char *gralloc)
      display->system_version = property_get_int32("ro.system.build.version.sdk", 0);
      display->gtype = get_gralloc_type(gralloc);
      display->refresh = 0;
@@ -2079,7 +2164,7 @@ index 0bd2f35..6fb3471 100644
      display->display = wl_display_connect(NULL);
      ALOGI("WAYLAND_DISPLAY: %s", getenv("WAYLAND_DISPLAY"));
      ALOGI("XDG_RUNTIME_DIR: %s", getenv("XDG_RUNTIME_DIR"));
-@@ -2080,29 +2387,55 @@ create_display(const char *gralloc)
+@@ -2080,29 +2420,55 @@ create_display(const char *gralloc)
      umask(0);
      mkdir("/dev/input", S_IRWXO | S_IRWXG | S_IRWXU);
      chown("/dev/input", 1000, 1000);
