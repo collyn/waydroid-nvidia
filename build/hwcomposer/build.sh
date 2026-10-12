@@ -93,7 +93,9 @@ DEFS=(
   -D__ANDROID_USE_LIBLOG_SAFETY_NET=0
 )
 
-CXXFLAGS=(-O2 -fPIC -std=c++17 -isystem "$HERE/libcxx-override" -Wall -Wno-unused-parameter -Wno-deprecated-declarations -fno-exceptions -fno-rtti)
+# Compile against the same Android 13 libc++ ABI used by the guest link.
+# NDK libc++ headers can emit symbols absent from the image libc++.
+CXXFLAGS=(-O2 -fPIC -std=c++17 -nostdinc++ -isystem "$HERE/libcxx-override" -isystem "$WNV/aosp_libcxx/include" -Wall -Wno-unused-parameter -Wno-deprecated-declarations -fno-exceptions -fno-rtti)
 
 SRCS=(
   "$HERE/libcxx_compat.cpp"

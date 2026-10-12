@@ -4,12 +4,22 @@
 Works with the proprietary NVIDIA kernel module; the open kernel module
 (`nvidia-open`) is optional and has no advantage for DMA-BUF on this stack.**
 
-[![build](https://github.com/quinovax/waydroid-nvidia/actions/workflows/build.yml/badge.svg)](https://github.com/quinovax/waydroid-nvidia/actions/workflows/build.yml)
+[![build](https://github.com/collyn/waydroid-nvidia/actions/workflows/build.yml/badge.svg)](https://github.com/collyn/waydroid-nvidia/actions/workflows/build.yml)
 [![release](https://img.shields.io/github/v/release/quinovax/waydroid-nvidia)](https://github.com/quinovax/waydroid-nvidia/releases)
 
-## Note on this fork's history
+## Collyn development fork
 
-This is a fork of [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia).
+This fork carries the AnvilDroid backend fixes on `dev`, starting from
+`quinovax/waydroid-nvidia` commit `a2fb681b0e6c`. See
+[fixes and validation](docs/collyn-fork.md). No release of these changes has
+been published yet; the release badge and installation instructions below
+refer to upstream releases.
+
+## Inherited upstream history
+
+Our immediate upstream is [quinovax/waydroid-nvidia](https://github.com/quinovax/waydroid-nvidia),
+which forked [Shiro836/waydroid-nvidia](https://github.com/Shiro836/waydroid-nvidia).
+The history cleanup described below was performed by quinovax.
 Upstream once committed 92 MiB of AUR build artifacts under `packaging/aur/**`;
 a later `git rm` removed them from the tree but every clone still carried the
 blobs, so this fork rebuilt its history to purge them (`.git` went from 106 MB

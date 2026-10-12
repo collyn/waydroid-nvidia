@@ -31,11 +31,11 @@ Note also that the issue numbers in this fork's commit history (`#7`, `#9`,
 
 Therefore:
 
-- Remotes follow the git convention: `origin` = `quinovax/waydroid-nvidia`
-  (this repo), `upstream` = `Shiro836/waydroid-nvidia`. Do not swap them.
-- `gh` has its default repository set to `quinovax/waydroid-nvidia`, so a bare
-  `gh issue view 11` resolves here. Keep it that way (`gh repo set-default
-  quinovax/waydroid-nvidia`).
+- In this checkout, `origin` = `collyn/waydroid-nvidia` and `upstream` =
+  `quinovax/waydroid-nvidia`. The original upstream is
+  `Shiro836/waydroid-nvidia`.
+- Always specify `--repo collyn/waydroid-nvidia` for fork writes. Specify
+  the upstream owner explicitly for upstream issue queries and PRs.
 - In commit messages, issues, docs and user-facing text, **always write the
   fully qualified reference** — `quinovax/waydroid-nvidia#11` or
   `Shiro836/waydroid-nvidia#11` — never a bare `#11`. A bare number is
@@ -48,10 +48,10 @@ Therefore:
 - **`main` is the release branch.** It only moves when a release is cut: `dev` is
   merged/ff-integrated into `main` and a tag is pushed. Between releases `main`
   sits on the last release commit.
-- So the normal push is `git push fork dev`. **Never `git push fork dev:dev
+- So the normal push is `git push origin dev`. **Never `git push fork dev:dev
   dev:main`** — that publishes unreleased work and breaks the release branch.
 - Before touching a remote branch, check what it actually points at:
-  `git ls-remote --heads fork`, `git log --oneline <tag>..<branch>`.
+  `git ls-remote --heads origin`, `git log --oneline <tag>..<branch>`.
   `v0.1.2` is an annotated tag, so compare with `git rev-parse v0.1.2^{commit}`
   rather than `git rev-parse v0.1.2` (the latter yields the tag object).
 - If `main` was pushed by mistake, restore it to the last release commit with a
