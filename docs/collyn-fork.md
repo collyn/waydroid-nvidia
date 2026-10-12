@@ -28,6 +28,13 @@ AnvilDroid and are not part of this backend fork.
   libc++ headers and disable the NDK's default C++ header search. HWC already
   links to the image's Android 13 libc++; headers must match that ABI rather
   than the newer NDK runtime. `provision.sh` already pins these headers.
+  Modern Bionic also provides inline narrow `ctype *_l` definitions that
+  conflict with the old libc++ fallbacks. Target-header compile probes check
+  all 14 functions for availability and inline-definition compatibility.
+  When they conflict, a generated build-local overlay removes only those
+  14 fallbacks. Wide-character, collation and time fallbacks remain intact;
+  older headers retain the original AOSP behavior. No provisioned source
+  headers are modified.
 
 ## Validation performed
 
@@ -46,10 +53,16 @@ from CI passed:
 - YAML parsing and clean application of the generated patch series from the
   pinned upstream sources. The clean trees match the compiled source trees.
 
-HWC validation used the available NDK **r26d**, with existing provisioned
-Android headers/static dependencies/image libraries mounted read-only.
-The repository CI pins **r29**; this local run does not validate r29 or a
-fresh download/provisioning of all HWC prerequisites. Mesa, ANGLE and
+Initial HWC validation used NDK **r26d**. A follow-up reproduced the CI
+failure (14 narrow `ctype *_l` redefinitions) using the CI-pinned **r29**
+archive verified against `NDK_ZIP_SHA256`. With the locale overlay fix,
+full HWC compile/link/strip passed on both **r29** and **r26d** in Ubuntu
+24.04. The builds also reused the same output directory to verify that a
+stale r29 overlay does not affect the older-header path.
+
+These builds use existing provisioned Android headers/static dependencies/
+image libraries mounted read-only. They do not validate a fresh download/
+provisioning of all HWC prerequisites. Mesa, ANGLE and
 SurfaceFlinger were unchanged and were not rebuilt for this transfer.
 
 The equivalent earlier AnvilDroid payload was exercised on an RTX 2060 in

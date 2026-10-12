@@ -95,7 +95,23 @@ DEFS=(
 
 # Compile against the same Android 13 libc++ ABI used by the guest link.
 # NDK libc++ headers can emit symbols absent from the image libc++.
-CXXFLAGS=(-O2 -fPIC -std=c++17 -nostdinc++ -isystem "$HERE/libcxx-override" -isystem "$WNV/aosp_libcxx/include" -Wall -Wno-unused-parameter -Wno-deprecated-declarations -fno-exceptions -fno-rtti)
+LIBCXX_INC=(-isystem "$HERE/libcxx-override")
+# Newer Bionic headers define all 14 narrow ctype *_l functions themselves.
+# Probe definitions as well as declarations: older Bionic headers declare
+# these functions but allow AOSP's inline fallbacks. Keep AOSP's other
+# locale fallbacks and leave the provisioned header tree untouched.
+if "$CXX" -std=c++17 -nostdinc++ -fsyntax-only \
+    "$HERE/../../src/hwc_ctype_l_probe.cpp" >"$OUT/ctype-l-probe.log" 2>&1 &&
+   ! "$CXX" -std=c++17 -nostdinc++ -fsyntax-only -DWNV_PROBE_CTYPE_L_FALLBACKS \
+    "$HERE/../../src/hwc_ctype_l_probe.cpp" >>"$OUT/ctype-l-probe.log" 2>&1; then
+    python3 "$HERE/prepare-libcxx.py" "$WNV/aosp_libcxx/include" "$OUT/libcxx-overlay"
+    LIBCXX_INC+=(-isystem "$OUT/libcxx-overlay")
+    echo "libc++: use Bionic narrow ctype locale functions"
+else
+    echo "libc++: use AOSP narrow ctype locale fallbacks"
+fi
+LIBCXX_INC+=(-isystem "$WNV/aosp_libcxx/include")
+CXXFLAGS=(-O2 -fPIC -std=c++17 -nostdinc++ "${LIBCXX_INC[@]}" -Wall -Wno-unused-parameter -Wno-deprecated-declarations -fno-exceptions -fno-rtti)
 
 SRCS=(
   "$HERE/libcxx_compat.cpp"
