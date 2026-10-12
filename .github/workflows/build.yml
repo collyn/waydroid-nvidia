@@ -137,8 +137,10 @@ jobs:
           git -C virgl-src apply "$GITHUB_WORKSPACE"/patches/virglrenderer/0006-wip-*.patch
       - name: Build virgl_test_server + render server
         run: REPO="$GITHUB_WORKSPACE" ./build/virglrenderer/build.sh "$PWD/virgl-src" "$PWD/virgl-build"
-      - name: Test buffer external-memory admission
-        run: python3 tests/run-vkr-buffer-test.py "$PWD/virgl-src"
+      - name: Test buffer and image external-memory admission
+        run: |
+          python3 tests/run-vkr-buffer-test.py "$PWD/virgl-src"
+          python3 tests/run-vkr-hybrid-test.py "$PWD/virgl-src"
       - name: Verify VCMD_RESOURCE_ALLOC_GPU is linked
         run: |
           # v0.1.1 shipped a host tarball built without patch 0006 (issue #7):

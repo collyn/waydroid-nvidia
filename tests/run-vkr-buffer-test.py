@@ -7,9 +7,9 @@ import subprocess
 import tempfile
 
 
-def check(tree):
-    source = (tree / 'src/venus/vkr_buffer.c').read_text()
-    start = source.index('static void\nvkr_dispatch_vkCreateBuffer(')
+def check(tree, kind='buffer'):
+    source = (tree / f'src/venus/vkr_{kind}.c').read_text()
+    start = source.index(f'static void\nvkr_dispatch_vkCreate{kind.title()}(')
     body = source.index('{', start)
     depth = 1
     end = body + 1
@@ -79,17 +79,25 @@ int main(void) {
     return 0;
 }
 '''
-    with tempfile.TemporaryDirectory(prefix='vkr-buffer-test-') as directory:
+    if kind == 'image':
+        harness = harness.replace('Buffer', 'Image').replace('BUFFER', 'IMAGE').replace('buffer', 'image')
+        tests = tests.replace('VkBufferOpaqueCaptureAddressCreateInfo', 'VkImageFormatListCreateInfo')
+        tests = tests.replace('VK_STRUCTURE_TYPE_BUFFER_OPAQUE_CAPTURE_ADDRESS_CREATE_INFO',
+                              'VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO')
+        tests = tests.replace('Buffer', 'Image').replace('BUFFER', 'IMAGE').replace('buffer', 'image')
+    with tempfile.TemporaryDirectory(prefix=f'vkr-{kind}-test-') as directory:
         test = Path(directory) / 'test.c'
         binary = Path(directory) / 'test'
         test.write_text(harness + dispatcher + tests)
         subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Wextra', '-Werror',
                         str(test), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
-    print('PASS: 16 CreateBuffer export/chain/error cases')
+    print(f'PASS: 16 Create{kind.title()} export/chain/error cases')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('tree', type=Path, help='Virglrenderer tree with the repository patch series applied')
-    check(parser.parse_args().tree)
+    tree = parser.parse_args().tree
+    check(tree)
+    check(tree, 'image')

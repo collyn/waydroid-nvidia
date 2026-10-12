@@ -36,6 +36,14 @@ AnvilDroid and are not part of this backend fork.
   older headers retain the original AOSP behavior. No provisioned source
   headers are modified.
 
+- **Hybrid presentation memory:** carry the existing AnvilDroid hybrid fix
+  into this fork: when only a non-NVIDIA GPU has a connected display, remap
+  dedicated images to coherent host-visible memory only if the image's actual
+  memory requirements permit that type. Device-only images retain the guest
+  choice. Image creation declares the allocator's external handle using the
+  same local-chain strategy as buffers, avoiding NVIDIA SYSMEM KIND faults.
+  Per-allocation diagnostic spam and unused experimental fields are omitted.
+
 ## Validation performed
 
 On 2026-10-12, an Ubuntu 24.04 container with the host build dependencies
@@ -65,6 +73,10 @@ image libraries mounted read-only. They do not validate a fresh download/
 provisioning of all HWC prerequisites. Mesa, ANGLE and
 SurfaceFlinger were unchanged and were not rebuilt for this transfer.
 
+The buffer/image dispatcher suite now covers 32 cases; an additional 64-case
+selector test covers all masks against device-only, visible, and coherent
+memory types.
+
 The equivalent earlier AnvilDroid payload was exercised on an RTX 2060 in
 an AMD/NVIDIA hybrid KDE Wayland session. The newly built fork binaries
 have not replaced that installed payload. The OPAQUE_FD-only path is
@@ -80,6 +92,7 @@ With the pinned virgl source and patches 0001–0006 applied:
 ```sh
 ./tests/run-hwc-pitch-test.sh
 python3 tests/run-vkr-buffer-test.py /path/to/virgl-src
+python3 tests/run-vkr-hybrid-test.py /path/to/virgl-src
 ./build/virglrenderer/build.sh /path/to/virgl-src /path/to/virgl-build
 WNV=/path/to/prereqs ROOTFS=/path/to/prereqs/image-rootfs NDK=/path/to/ndk \
   ./build/hwcomposer/build.sh /path/to/hwc-src/hwcomposer /path/to/hwc-build

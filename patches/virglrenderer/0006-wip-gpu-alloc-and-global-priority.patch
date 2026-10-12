@@ -713,6 +713,20 @@ index 90b6d384..98d55b27 100644
  void
  vkr_context_init_command_pool_dispatch(struct vkr_context *ctx);
  
+diff --git a/src/venus/vkr_common.h b/src/venus/vkr_common.h
+index f484bad8..96f117ba 100644
+--- a/src/venus/vkr_common.h
++++ b/src/venus/vkr_common.h
+@@ -216,6 +216,9 @@ object_array_init(struct vkr_context *ctx,
+ void
+ object_array_fini(struct object_array *arr);
+ 
++/* True when presentation must cross from NVIDIA to a non-NVIDIA display GPU. */
++bool vkr_hybrid_linear_present(void);
++
+ static inline void *
+ vkr_find_struct(const void *chain, VkStructureType type)
+ {
 diff --git a/src/venus/vkr_context.c b/src/venus/vkr_context.c
 index c170bd32..5844f2ad 100644
 --- a/src/venus/vkr_context.c
@@ -1324,6 +1338,266 @@ index 7ba72eb8..5ce851cb 100644
  bool
  vkr_context_wait_ring_seqno(struct vkr_context *ctx,
                              struct vkr_ring *ring,
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 57a108d6..10c27fcc 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -5,6 +5,13 @@
+ 
+ #include "vkr_device_memory.h"
+ 
++#include "vkr_image.h"
++
++#include <ctype.h>
++#include <dirent.h>
++#include <pthread.h>
++#include <stdlib.h>
++
+ #include <math.h>
+ 
+ #include "venus-protocol/vn_protocol_renderer_transport.h"
+@@ -244,6 +251,126 @@ vkr_gbm_get_fd_info_from_allocation_info(UNUSED struct vkr_physical_device *phys
+ 
+ #endif /* ENABLE_GBM_ALLOCATION */
+ 
++/* Hybrid detection (local fix): the desktop compositor runs on a
++ * non-NVIDIA GPU when some other DRM card owns a connected display.  It can
++ * only import sysmem dmabufs, so exported allocations must avoid VRAM
++ * (mirrors the host allocator's PRESENT_NVIDIA_LINEAR mode choice). */
++static char *
++vkr_sysfs_line(const char *path, char *buf, size_t size)
++{
++   FILE *file = fopen(path, "r");
++   if (!file)
++      return NULL;
++   char *line = fgets(buf, (int)size, file);
++   fclose(file);
++   if (line) {
++      size_t n = strlen(line);
++      while (n && (line[n - 1] == '\n' || line[n - 1] == ' '))
++         line[--n] = '\0';
++   }
++   return line;
++}
++
++static bool
++vkr_is_drm_card(const char *name)
++{
++   if (strncmp(name, "card", 4) != 0 || !isdigit((unsigned char)name[4]))
++      return false;
++   for (const char *p = name + 4; *p; p++)
++      if (!isdigit((unsigned char)*p))
++         return false;
++   return true;
++}
++
++static bool vkr_hybrid_linear; /* set by vkr_hybrid_init */
++
++static void
++vkr_hybrid_init(void)
++{
++   bool nvidia_connected = false;
++   bool other_connected = false;
++
++   DIR *dir = opendir("/sys/class/drm");
++   if (!dir)
++      return;
++   struct dirent *ent;
++   while ((ent = readdir(dir))) {
++      if (!vkr_is_drm_card(ent->d_name))
++         continue;
++
++      char path[320];
++      char value[32];
++
++      unsigned vendor = 0;
++      snprintf(path, sizeof(path), "/sys/class/drm/%s/device/vendor",
++               ent->d_name);
++      if (vkr_sysfs_line(path, value, sizeof(value)))
++         vendor = strtoul(value, NULL, 0);
++      const bool nvidia = vendor == 0x10de;
++
++      bool connected = false;
++      DIR *conns = opendir("/sys/class/drm");
++      if (conns) {
++         char prefix[320];
++         if ((size_t)snprintf(prefix, sizeof(prefix), "%s-", ent->d_name) >=
++             sizeof(prefix)) {
++            closedir(conns);
++            continue;
++         }
++         const size_t plen = strlen(prefix);
++         struct dirent *c;
++         while ((c = readdir(conns))) {
++            if (strncmp(c->d_name, prefix, plen) != 0)
++               continue;
++            snprintf(path, sizeof(path), "/sys/class/drm/%s/status",
++                     c->d_name);
++            char status[32];
++            if (vkr_sysfs_line(path, status, sizeof(status)) &&
++                strcmp(status, "connected") == 0)
++               connected = true;
++         }
++         closedir(conns);
++      }
++
++      if (nvidia)
++         nvidia_connected = nvidia_connected || connected;
++      else
++         other_connected = other_connected || connected;
++   }
++   closedir(dir);
++
++   vkr_hybrid_linear = other_connected && !nvidia_connected;
++   vkr_log("hybrid linear present: %s (nvidia connected=%s, other connected=%s)",
++           vkr_hybrid_linear ? "yes" : "no",
++           nvidia_connected ? "yes" : "no", other_connected ? "yes" : "no");
++}
++
++bool
++vkr_hybrid_linear_present(void)
++{
++   static pthread_once_t once = PTHREAD_ONCE_INIT;
++   pthread_once(&once, vkr_hybrid_init);
++   return vkr_hybrid_linear;
++}
++
++/* Never assign a memory type excluded by the dedicated image's requirements.
++ * Images without a compatible coherent sysmem type retain the guest choice. */
++static uint32_t
++vkr_hybrid_memory_type(const VkPhysicalDeviceMemoryProperties *properties,
++                       uint32_t type_bits, uint32_t original)
++{
++   if (properties->memoryTypes[original].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
++      return original;
++   const VkMemoryPropertyFlags required = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
++   for (uint32_t i = 0; i < properties->memoryTypeCount; i++) {
++      if ((type_bits & (1u << i)) &&
++          (properties->memoryTypes[i].propertyFlags & required) == required)
++         return i;
++   }
++   return original;
++}
++
+ static void
+ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+                               struct vn_command_vkAllocateMemory *args)
+@@ -254,7 +381,7 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    struct vkr_physical_device *physical_dev = dev->physical_device;
+ 
+    VkMemoryAllocateInfo *alloc_info = (VkMemoryAllocateInfo *)args->pAllocateInfo;
+-   const uint32_t mem_type_index = alloc_info->memoryTypeIndex;
++   uint32_t mem_type_index = alloc_info->memoryTypeIndex;
+    if (unlikely(mem_type_index >= physical_dev->memory_properties.memoryTypeCount)) {
+       args->ret = VK_ERROR_UNKNOWN;
+       return;
+@@ -281,6 +408,50 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+    /* track if driver has requested export allocation */
+    const bool might_export = export_info && export_info->handleTypes;
+ 
++   /* VkMemoryDedicatedAllocateInfo marks swapchain/window images: these are
++    * the allocations whose dmabufs reach the desktop compositor. */
++   const bool dedicated =
++      vkr_find_struct(alloc_info->pNext,
++                      VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO) != NULL;
++
++   /* Hybrid fix (local): allocations whose dmabufs reach the non-NVIDIA
++    * desktop compositor must live in sysmem; the guest picks memory types
++    * without HOST_VISIBLE for its WSI images (observed: type 0, flags 0x0)
++    * and KWin then fails to import the exported dmabuf. Remap every
++    * dedicated image allocation to a compatible host-visible type, like the host
++    * allocator's hybrid LINEAR presentation buffers. */
++   if (vkr_hybrid_linear_present() && dedicated &&
++       !(physical_dev->memory_properties.memoryTypes[mem_type_index].propertyFlags &
++         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
++      /* Only remap when the image's own requirements include a host-visible
++       * type: some dedicated images (small cursor/IME buffers) are only
++       * compatible with device-local types, and remapping those makes the
++       * allocation fail so the later bind cannot look the memory up (CS
++       * error that kills the renderer context). */
++      uint32_t type_bits = 0;
++      VkMemoryDedicatedAllocateInfo *ded_lookup =
++         vkr_find_struct(alloc_info->pNext,
++                         VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
++      if (ded_lookup && ded_lookup->image && ctx) {
++         struct vkr_image *dimg =
++            vkr_context_get_object(ctx, (uint64_t)ded_lookup->image);
++         if (dimg && dimg->base.type == VK_OBJECT_TYPE_IMAGE) {
++            VkMemoryRequirements req = { 0 };
++            dev->proc_table.GetImageMemoryRequirements(
++               dev->base.handle.device, dimg->base.handle.image, &req);
++            type_bits = req.memoryTypeBits;
++         }
++      }
++      const uint32_t selected = vkr_hybrid_memory_type(
++         &physical_dev->memory_properties, type_bits, mem_type_index);
++      if (selected != mem_type_index) {
++         vkr_log("hybrid: remapping exported allocation from memory type %u to %u",
++                 mem_type_index, selected);
++         alloc_info->memoryTypeIndex = selected;
++         mem_type_index = selected;
++      }
++   }
++
+    /* XXX Force dma_buf/opaque fd export or gbm bo import until a new extension that
+     * supports direct export from host visible memory
+     *
+diff --git a/src/venus/vkr_image.c b/src/venus/vkr_image.c
+index 2b627e37..fb4a5358 100644
+--- a/src/venus/vkr_image.c
++++ b/src/venus/vkr_image.c
+@@ -12,24 +12,33 @@ static void
+ vkr_dispatch_vkCreateImage(struct vn_dispatch_context *dispatch,
+                            struct vn_command_vkCreateImage *args)
+ {
+-   /* XXX If VkExternalMemoryImageCreateInfo is chained by the app, all is
+-    * good.  If it is not chained, we might still bind an external memory to
+-    * the image, because vkr_dispatch_vkAllocateMemory makes any HOST_VISIBLE
+-    * memory external.  That is a spec violation.
+-    *
+-    * The discussions in vkr_dispatch_vkCreateBuffer are applicable to both
+-    * buffers and images.  Additionally, drivers usually use
+-    * VkExternalMemoryImageCreateInfo to pick a well-defined image layout for
+-    * interoperability with foreign queues.  However, a well-defined layout
+-    * might not exist for some images.  When it does, it might still require a
+-    * dedicated allocation or might have a degraded performance.
+-    *
+-    * On the other hand, binding an external memory to an image created
+-    * without VkExternalMemoryImageCreateInfo usually works.  Yes, it will
+-    * explode if the external memory is accessed by foreign queues due to the
+-    * lack of a well-defined image layout.  But we never end up in that
+-    * situation because the app does not consider the memory external.
++   /* The hybrid allocator remaps compatible dedicated presentation images
++    * to host-visible memory. Declare external memory at image creation so
++    * NVIDIA chooses an interoperable layout (avoids SYSMEM KIND/Xid 13).
++    * Match the allocator's preferred single export handle, as for buffers.
+     */
++   const VkImageCreateInfo *original = args->pCreateInfo;
++   struct vkr_device *dev = vkr_device_from_handle(args->device);
++   const struct vkr_physical_device *physical = dev->physical_device;
++   VkExternalMemoryHandleTypeFlags handles =
++      physical->is_dma_buf_fd_export_supported
++         ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT
++         : physical->is_opaque_fd_export_supported
++              ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT : 0;
++   if (original && handles &&
++       !vkr_find_struct(original->pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO)) {
++      const VkExternalMemoryImageCreateInfo external = {
++         .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
++         .pNext = original->pNext,
++         .handleTypes = handles,
++      };
++      VkImageCreateInfo info = *original;
++      info.pNext = &external;
++      args->pCreateInfo = &info;
++      vkr_image_create_and_add(dispatch->data, args);
++      args->pCreateInfo = original;
++      return;
++   }
+ 
+    vkr_image_create_and_add(dispatch->data, args);
+ }
 diff --git a/src/venus/vkr_pipeline.c b/src/venus/vkr_pipeline.c
 index 9e8dd26d..e238c23c 100644
 --- a/src/venus/vkr_pipeline.c
