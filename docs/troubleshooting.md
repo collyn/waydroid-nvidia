@@ -173,3 +173,14 @@ tests/run-probe.sh    # or ./nvimportprobe directly
 
 Exit 0 = this machine can run the stack. Exit 3 = it can't, and the output
 says why.
+
+## Full UI disappears on a hybrid desktop
+
+If Android keeps running but opening full UI logs `zwp_linux_buffer_params_v1`
+error 7, check the desktop compositor GPU as well as the Android rendering GPU.
+NVIDIA block-linear buffers are not importable by an AMD/Intel compositor.
+HWC must test modifier admission for `HWC_FRAMEBUFFER_TARGET` too; full UI
+uses that target directly. Unsupported targets use the existing EGL-to-wl_shm
+presentation path while Android rendering stays on NVIDIA. Restart the runtime
+after updating HWC: the old Wayland connection cannot recover from a fatal
+protocol error. `tests/run-hwc-pitch-test.sh` covers the admission predicate.

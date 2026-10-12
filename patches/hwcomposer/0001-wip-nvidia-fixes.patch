@@ -226,7 +226,7 @@ index 1d045e3..73a173b 100644
  };
 \ No newline at end of file
 diff --git a/hwcomposer/hwcomposer.cpp b/hwcomposer/hwcomposer.cpp
-index f509ed7..ffc162d 100644
+index f509ed7..9061723 100644
 --- a/hwcomposer/hwcomposer.cpp
 +++ b/hwcomposer/hwcomposer.cpp
 @@ -17,10 +17,14 @@
@@ -364,7 +364,7 @@ index f509ed7..ffc162d 100644
      buffer *find_cached_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata &metadata, buffer_handle_t handle) {
          auto it = pdev->display->buffer_map.find(handle);
          if (it != pdev->display->buffer_map.end()) {
-@@ -104,13 +203,38 @@ namespace {
+@@ -104,13 +203,39 @@ namespace {
      buffer *get_wl_buffer(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1_t *layer, size_t pos) {
          const auto& gralloc_handler = pdev->gralloc_handler;
          auto metadata = gralloc_handler.get_buffer_metadata(pdev->display, layer, pos);
@@ -385,12 +385,13 @@ index f509ed7..ffc162d 100644
 +            const bool rgb32 = metadata.format == HAL_PIXEL_FORMAT_RGBA_8888
 +                || metadata.format == HAL_PIXEL_FORMAT_RGBX_8888
 +                || metadata.format == HAL_PIXEL_FORMAT_BGRA_8888;
-+            const bool misaligned_pitch = !hwc_rgb32_pitch_aligned(metadata.pixel_stride, rgb32);
++            /* Full UI presents FRAMEBUFFER_TARGET directly. It must obey
++             * the same modifier admission as app layers: NVIDIA tiled
++             * targets cannot be imported by an AMD/Intel compositor. */
 +            const bool undisplayable = layer->handle
 +                && !(layer->flags & HWC_IS_CURSOR_LAYER)
-+                && (misaligned_pitch ||
-+                    (layer->compositionType != HWC_FRAMEBUFFER_TARGET
-+                     && !gralloc_handler.displayable_buffer(pdev->display, layer->handle)));
++                && hwc_buffer_needs_shm(metadata.pixel_stride, rgb32,
++                    gralloc_handler.displayable_buffer(pdev->display, layer->handle));
              std::unique_ptr<buffer> result;
              if (layer->flags & HWC_IS_CURSOR_LAYER)
                  result = pdev->display->cursor_handler->create_buffer(pdev, metadata, layer);
@@ -404,7 +405,7 @@ index f509ed7..ffc162d 100644
                  result = gralloc_handler.create_buffer(pdev->display, metadata, layer->handle);
              if (!result) {
                  ALOGE("failed to create a wayland buffer");
-@@ -119,8 +243,14 @@ namespace {
+@@ -119,8 +244,14 @@ namespace {
              auto emplace_result = pdev->display->buffer_map.emplace(layer->handle, std::move(result));
              assert(emplace_result.second);
              buf = emplace_result.first->second.get();
@@ -419,7 +420,7 @@ index f509ed7..ffc162d 100644
          if (buf->isShm)
              gralloc_handler.update_shm_buffer(pdev->display, buf);
          return buf;
-@@ -214,12 +344,34 @@ static int hwc_prepare(hwc_composer_device_1_t* dev,
+@@ -214,12 +345,34 @@ static int hwc_prepare(hwc_composer_device_1_t* dev,
      return 0;
  }
  
@@ -457,7 +458,7 @@ index f509ed7..ffc162d 100644
      return next_vsync - now;
  }
  
-@@ -235,8 +387,7 @@ static void* hwc_vsync_thread(void* data) {
+@@ -235,8 +388,7 @@ static void* hwc_vsync_thread(void* data) {
      bool vsync_enabled = false;
  
      struct timespec wait_time;
@@ -467,7 +468,7 @@ index f509ed7..ffc162d 100644
  
      while (true) {
          ATRACE_BEGIN("hwc_vsync_thread");
-@@ -257,14 +408,14 @@ static void* hwc_vsync_thread(void* data) {
+@@ -257,14 +409,14 @@ static void* hwc_vsync_thread(void* data) {
                    __FILE__, __LINE__, strerror(errno));
          }
  
@@ -484,7 +485,7 @@ index f509ed7..ffc162d 100644
          pdev->procs->vsync(pdev->procs, 0, timestamp);
          ATRACE_END();
      }
-@@ -292,7 +443,13 @@ feedback_presented(void *data,
+@@ -292,7 +444,13 @@ feedback_presented(void *data,
      auto *pdev = static_cast<waydroid_hwc_composer_device_1 *>(data);
      wp_presentation_feedback_destroy(feedback);
  
@@ -499,7 +500,7 @@ index f509ed7..ffc162d 100644
  }
  
  static void
-@@ -333,50 +490,111 @@ static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surfac
+@@ -333,50 +491,111 @@ static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surfac
      });
  }
  
@@ -630,7 +631,7 @@ index f509ed7..ffc162d 100644
  }
  
  int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, window *window) {
-@@ -389,28 +607,79 @@ int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1
+@@ -389,28 +608,79 @@ int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1
          return -1;
      }
  
@@ -719,7 +720,7 @@ index f509ed7..ffc162d 100644
  
      if (window->display->presentation) {
          auto feedback = wp_presentation_feedback(window->display->presentation, window_layer.surface);
-@@ -431,6 +700,35 @@ static void reset_per_commit_state_window(waydroid_hwc_composer_device_1 *pdev)
+@@ -431,6 +701,35 @@ static void reset_per_commit_state_window(waydroid_hwc_composer_device_1 *pdev)
      }
  }
  
@@ -755,7 +756,7 @@ index f509ed7..ffc162d 100644
  static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
                     hwc_display_contents_1_t** displays) {
      if (HWC_DISPLAY_PRIMARY >= numDisplays || !displays)
-@@ -441,11 +739,24 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -441,11 +740,24 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
      hwc_display_contents_1_t* contents = displays[HWC_DISPLAY_PRIMARY];
      assert(contents);
  
@@ -783,7 +784,7 @@ index f509ed7..ffc162d 100644
      mode->setup_set(pdev, contents);
  
      std::scoped_lock lock(pdev->display->windowsMutex);
-@@ -459,9 +770,13 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -459,9 +771,13 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
          if (layer->flags & HWC_IS_CURSOR_LAYER) {
              found_cursor = true;
              pdev->display->cursor_handler->apply_cursor(pdev, layer, l);
@@ -800,7 +801,7 @@ index f509ed7..ffc162d 100644
          }
      }
      if (!found_cursor) {
-@@ -469,6 +784,7 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -469,6 +785,7 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
      }
  
      mode->post_processing(pdev, contents);
@@ -808,7 +809,7 @@ index f509ed7..ffc162d 100644
  
      for (auto& [key, window] : pdev->display->windows) {
          if (window->input_region) {
-@@ -483,7 +799,18 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -483,7 +800,18 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
  
      if (pdev->display->needHotplug && pdev->procs && pdev->procs->hotplug) {
          pdev->procs->hotplug(pdev->procs, 0, 1);
@@ -828,7 +829,7 @@ index f509ed7..ffc162d 100644
          pdev->display->needHotplug = false;
      }
      return 0;
-@@ -650,7 +977,42 @@ static void* hwc_binder_thread(void* data) {
+@@ -650,7 +978,42 @@ static void* hwc_binder_thread(void* data) {
      sp<IWaydroidClipboard> waydroidClipboard;
  
      setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
@@ -872,7 +873,7 @@ index f509ed7..ffc162d 100644
  
      waydroidDisplay = new WaydroidDisplay(pdev->display);
      if (waydroidDisplay == nullptr) {
-@@ -686,8 +1048,34 @@ static void* hwc_binder_thread(void* data) {
+@@ -686,8 +1049,34 @@ static void* hwc_binder_thread(void* data) {
      }
  
      ALOGI("Waydroid hwcomposer services are ready.");
@@ -909,7 +910,7 @@ index f509ed7..ffc162d 100644
  
  shutdown:
      // In normal operation, we don't expect the thread pool to shutdown
-@@ -705,6 +1093,28 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -705,6 +1094,28 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
          return -EINVAL;
      }
  
@@ -938,7 +939,7 @@ index f509ed7..ffc162d 100644
      waydroid_hwc_composer_device_1 *pdev = new waydroid_hwc_composer_device_1();
      if (!pdev) {
          ALOGE("%s failed to allocate dev", __FUNCTION__);
-@@ -781,6 +1191,9 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -781,6 +1192,9 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
      }
  
      auto first_window = window::create(pdev->display, pdev->should_compose, "Waydroid", "0", {0, 0, 0, 255});
@@ -948,7 +949,7 @@ index f509ed7..ffc162d 100644
      if (!property_get_bool("waydroid.background_start", true)) {
          pdev->display->windows.add("Waydroid", std::move(first_window));
          property_set("waydroid.active_apps", "Waydroid");
-@@ -792,13 +1205,27 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -792,13 +1206,27 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
      if (pdev->display->refresh > 1000 && pdev->display->refresh < 1000000)
          pdev->vsync_period_ns = 1000 * 1000 * 1000 / (pdev->display->refresh / 1000);
  
@@ -977,7 +978,7 @@ index f509ed7..ffc162d 100644
  
      if (!pdev->vsync_thread) {
          ret = pthread_create (&pdev->vsync_thread, NULL, hwc_vsync_thread, pdev);
-@@ -823,6 +1250,22 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -823,6 +1251,22 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
  }
  
  std::unique_ptr<buffer> cursor_handler::create_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata& metadata, hwc_layer_1 *hwc_layer) {
@@ -1000,7 +1001,7 @@ index f509ed7..ffc162d 100644
      return pdev->gralloc_handler.create_buffer(pdev->display, metadata, hwc_layer->handle);
  };
  
-@@ -885,6 +1328,11 @@ int subsurface_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev
+@@ -885,6 +1329,11 @@ int subsurface_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev
  }
  
  int subsurface_cursor_handler::on_cursor_enter(display* display) {
@@ -1012,7 +1013,7 @@ index f509ed7..ffc162d 100644
      if (display->pointer) {
          wl_pointer_set_cursor(display->pointer, display->pointer_enter_serial,
                                nullptr,
-@@ -911,6 +1359,8 @@ std::unique_ptr<buffer> wl_cursor_cursor_handler::create_buffer(waydroid_hwc_com
+@@ -911,6 +1360,8 @@ std::unique_ptr<buffer> wl_cursor_cursor_handler::create_buffer(waydroid_hwc_com
  
  void wl_cursor_cursor_handler::set_cursor(display* display) const {
      assert(display->pointer);
@@ -1021,7 +1022,7 @@ index f509ed7..ffc162d 100644
      wl_pointer_set_cursor (display->pointer, display->pointer_enter_serial,
                            cursor_surface_context.surface,
                            round(display->cursor_hotspot.x / display->scale),
-@@ -919,16 +1369,26 @@ void wl_cursor_cursor_handler::set_cursor(display* display) const {
+@@ -919,16 +1370,26 @@ void wl_cursor_cursor_handler::set_cursor(display* display) const {
  
  int wl_cursor_cursor_handler::apply_cursor(waydroid_hwc_composer_device_1* pdev, hwc_layer_1* hwc_layer, size_t hwc_layer_index) {
      if (pdev->display->pointer) {

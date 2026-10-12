@@ -8,4 +8,9 @@
 static inline bool hwc_rgb32_pitch_aligned(uint32_t pixel_stride, bool rgb32) {
     return !rgb32 || pixel_stride % (256 / 4) == 0;
 }
+/* Client framebuffer targets and overlay layers share this policy. */
+static inline bool hwc_buffer_needs_shm(uint32_t pixel_stride, bool rgb32,
+                                      bool compositor_importable) {
+    return !hwc_rgb32_pitch_aligned(pixel_stride, rgb32) || !compositor_importable;
+}
 #endif

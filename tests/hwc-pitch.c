@@ -10,5 +10,11 @@ int main(void) {
         assert(!hwc_rgb32_pitch_aligned(invalid[i], true));
         assert(hwc_rgb32_pitch_aligned(invalid[i], false));
     }
+    /* Aligned full UI targets still require modifier admission on hybrid
+     * desktops; aligned rows alone do not make NVIDIA tiling importable. */
+    assert(hwc_buffer_needs_shm(1984, true, false));
+    assert(!hwc_buffer_needs_shm(1984, true, true));
+    assert(hwc_buffer_needs_shm(1080, true, true));
+    assert(hwc_buffer_needs_shm(1984, false, false));
     return 0;
 }
