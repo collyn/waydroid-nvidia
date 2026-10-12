@@ -241,6 +241,8 @@ jobs:
             echo "::warning::provision attempt $attempt failed, retrying..."
             sleep 10
           done
+      - name: Test hybrid row-pitch admission
+        run: ./tests/run-hwc-pitch-test.sh
       - name: Build hwcomposer.waydroid.so
         run: |
           WNV="$HOME/wnv" ROOTFS="$HOME/wnv/image-rootfs" NDK="$HOME/android-ndk" \

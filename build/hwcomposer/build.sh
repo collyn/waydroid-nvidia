@@ -51,6 +51,9 @@ fi
     exit 1
 }
 
+# Canonical admission predicate, also compiled by the portable regression test.
+install -m 0644 "$HERE/../../src/hwc_pitch.h" "$SRC/hwc_pitch.h"
+
 mkdir -p "$OUT"
 
 INC=(
