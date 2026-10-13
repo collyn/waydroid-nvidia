@@ -82,10 +82,14 @@ int vtest_present_create(int source_fd,uint32_t width,uint32_t height,uint32_t f
        fmt!=VTEST_FORMAT_XBGR8888 && fmt!=VTEST_FORMAT_XRGB8888) ||
       stride<width*4 || stride>131072)return -EINVAL;
    struct vtest_present *p=calloc(1,sizeof(*p));if(!p)return -ENOMEM;
+   /* Hybrid compositors require 256-byte rows. NVIDIA may otherwise return
+    * a 32-pixel-aligned pitch for narrow/freeform surfaces and their shadows.
+    * Pad only destination allocation, keeping source/copy/display extents. */
+   uint32_t destination_width=(width+63u)&~63u;
    int ret=-EIO;
    for(unsigned i=0;i<PRESENT_SLOTS;i++) {
       uint64_t mod,size;const char *place;
-      ret=vtest_gpu_alloc_image(width,height,fmt,true,false,out_stride,&mod,&size,&fds[i],&place);
+      ret=vtest_gpu_alloc_image(destination_width,height,fmt,true,false,out_stride,&mod,&size,&fds[i],&place);
       if(ret || mod!=0 || strcmp(place,"sysmem"))goto early_fail;
    }
    pthread_mutex_lock(&alloc_vk_mutex);
@@ -96,7 +100,7 @@ int vtest_present_create(int source_fd,uint32_t width,uint32_t height,uint32_t f
    for(unsigned i=0;i<PRESENT_SLOTS;i++) {
       duplicate=fcntl(fds[i],F_DUPFD_CLOEXEC,0);
       if(duplicate<0){ret=-errno;goto fail;}
-      ret=present_import(&p->dest[i],duplicate,width,height,fmt,*out_stride,0,0,VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+      ret=present_import(&p->dest[i],duplicate,destination_width,height,fmt,*out_stride,0,0,VK_IMAGE_USAGE_TRANSFER_DST_BIT);
       if(ret)goto fail;
    }
    PRESENT_FN(CreateCommandPool);PRESENT_FN(AllocateCommandBuffers);PRESENT_FN(CreateFence);

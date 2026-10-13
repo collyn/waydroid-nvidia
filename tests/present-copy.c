@@ -126,12 +126,13 @@ static void test_present_destroy(struct vtest_present *p) {
 }
 int main(void) {
  setenv("VTEST_ALLOC_GPU","NVIDIA",1);setenv("WAYDROID_NVIDIA_PRESENT","block-linear",1);
- target_init();const uint32_t widths[]={256,1984,1088},heights[]={256,1164,1920};
- for(unsigned k=0;k<3;k++) {
+ target_init();const uint32_t widths[]={256,1984,1088,600,664,563},heights[]={256,1164,1920,868,935,901};
+ for(unsigned k=0;k<sizeof(widths)/sizeof(widths[0]);k++) {
   uint32_t w=widths[k],h=heights[k],stride,outstride;uint64_t mod,size;int fd;
   assert(!vtest_gpu_alloc_gpu(w,h,VTEST_FORMAT_ABGR8888,&stride,&mod,&size,&fd));assert(mod);
   struct present_image source={0};assert(!present_import(&source,dup(fd),w,h,VTEST_FORMAT_ABGR8888,stride,0,mod,VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT));
   struct vtest_present *p;int dest[3];assert(!test_present_create(fd,w,h,VTEST_FORMAT_ABGR8888,stride,0,mod,&p,&outstride,dest));close(fd);
+  assert(outstride>=w*4 && !(outstride&255));
   double total=0;
   for(unsigned i=0;i<24;i++) {
    fill(&source,i,w,h);struct timespec begin,end;clock_gettime(CLOCK_MONOTONIC,&begin);

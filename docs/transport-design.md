@@ -117,7 +117,10 @@ path. Unsupported formats, old hosts, or failed copy setup retain wl_shm.
 - Command 47 (`COPY`) takes a destination index (0..2), returning status after
   Vulkan fence completion. The host imports the tiled source once and copies
   it with `vkCmdCopyImage` into an exportable, pure-system-memory NVIDIA
-  LINEAR image. No rendering or color attachment targets LINEAR. External
+  LINEAR image. Destination allocation width is padded to 64 pixels (256-byte rows), while
+  source/copy/Wayland extents stay unchanged. This prevents freeform/shadow
+  buffers with 32-pixel pitches from silently falling back to CPU readback.
+  No rendering or color attachment targets LINEAR. External
   queue ownership and layout transitions bracket each transfer.
 - HWC waits the Android producer acquire fence first, caches the source and
   three destinations, and admits only slots released by the compositor.
@@ -140,7 +143,8 @@ VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation ./tests/run-present-copy-test.sh
 
 The GPU test requires NVIDIA plus an AMD/Intel render node. It checks 24
 changing frames across all three slots at 256x256, 1984x1164 and 1088x1920,
-including actual shader sampling on the other GPU. On RTX 2060 + RX 6600,
+plus odd/freeform widths 600, 664 and 563, including actual shader sampling
+on the other GPU. Every destination pitch must be 256-byte aligned. On RTX 2060 + RX 6600,
 driver 615.71.09, the 1984x1164 transfer took about 0.8 ms. A controlled
 launcher scroll sample improved from 43.7% janky frames / 72.6 ms median to
 0% / 1.8 ms. These are sample measurements, not guarantees for every app.
