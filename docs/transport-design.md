@@ -98,3 +98,49 @@ chains and retry `vkCreateDevice` once.
   heap (write-combined sysmem through the socket is slow otherwise).
 - dma_buf mmap read bandwidth is below native — relevant to readback / lockCanvas
   paths, not the hot render path.
+
+## Hybrid presentation copy (`VCMD_PRESENT_CREATE` / `VCMD_PRESENT_COPY`)
+
+On hosts where rendering into NVIDIA LINEAR buffers causes device loss, keep
+`WAYDROID_NVIDIA_PRESENT=block-linear`. The HWC now handles an AMD/Intel
+compositor that cannot import those tiled buffers without reading the whole
+frame back through EGL. Producer rendering remains tiled; only the final
+presentation copy uses LINEAR. Direct compositor imports retain their usual
+path. Unsupported formats, old hosts, or failed copy setup retain wl_shm.
+
+- Command 46 (`CREATE`) uses a dedicated, uninitialized vtest context. Its
+  seven DWORDs are width, height, DRM format, source stride, source offset,
+  and modifier low/high, followed by a source fd via SCM_RIGHTS. The reply
+  contains status and destination stride, followed by three destination fds
+  on success. Only single-plane 32-bit RGB formats and bounded sizes are
+  supported. Disconnect releases all imported images and copy resources.
+- Command 47 (`COPY`) takes a destination index (0..2), returning status after
+  Vulkan fence completion. The host imports the tiled source once and copies
+  it with `vkCmdCopyImage` into an exportable, pure-system-memory NVIDIA
+  LINEAR image. No rendering or color attachment targets LINEAR. External
+  queue ownership and layout transitions bracket each transfer.
+- HWC waits the Android producer acquire fence first, caches the source and
+  three destinations, and admits only slots released by the compositor.
+  `wl_buffer.release` uses a private event queue dispatched exclusively on
+  the HWC thread. If all slots are busy, that presentation is skipped rather
+  than overwriting compositor data. Failed copies revert the cached source
+  to wl_shm. NVIDIA compositor modifiers exclude this cross-GPU path because
+  NVIDIA EGL cannot sample its LINEAR buffers as sampler2D.
+- Socket I/O is bounded, suppresses SIGPIPE, receives CLOEXEC fds, and rejects
+  and closes unexpected/truncated ancillary data. No commands in an existing
+  guest Mesa/gralloc connection change.
+
+Regression checks:
+
+```sh
+./tests/run-present-wire-test.sh  # portable fd/ring/disconnect checks; also CI
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation ./tests/run-present-copy-test.sh
+# Optional PRESENT_TEST_SOCKET=/path/to/isolated/vtest.sock tests commands 46/47.
+```
+
+The GPU test requires NVIDIA plus an AMD/Intel render node. It checks 24
+changing frames across all three slots at 256x256, 1984x1164 and 1088x1920,
+including actual shader sampling on the other GPU. On RTX 2060 + RX 6600,
+driver 615.71.09, the 1984x1164 transfer took about 0.8 ms. A controlled
+launcher scroll sample improved from 43.7% janky frames / 72.6 ms median to
+0% / 1.8 ms. These are sample measurements, not guarantees for every app.

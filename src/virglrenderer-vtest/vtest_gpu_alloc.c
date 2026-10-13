@@ -571,6 +571,7 @@ alloc_vk_init_locked(void)
       "VK_KHR_external_memory_fd",
       "VK_EXT_external_memory_dma_buf",
       "VK_EXT_image_drm_format_modifier",
+      "VK_KHR_image_format_list",
    };
    const VkDeviceCreateInfo dev_info = {
       .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -1076,3 +1077,5 @@ vtest_gpu_alloc_cpu(uint32_t width, uint32_t height, uint32_t drm_format,
    return vtest_udmabuf_alloc(width, height, drm_format, out_stride,
                               out_size, out_fd);
 }
+
+#include "vtest_present.inc"

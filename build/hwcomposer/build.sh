@@ -54,6 +54,11 @@ fi
 # Canonical admission predicate, also compiled by the portable regression test.
 install -m 0644 "$HERE/../../src/hwc_pitch.h" "$SRC/hwc_pitch.h"
 
+install -m 0644 "$HERE/../../src/hwc_present_io.h" "$SRC/hwc_present_io.h"
+install -m 0644 "$HERE/../../src/hwc_present_policy.h" "$SRC/hwc_present_policy.h"
+install -m 0644 "$HERE/../../src/hwc_present.h" "$SRC/hwc_present.h"
+install -m 0644 "$HERE/../../src/hwc_present.cpp" "$SRC/hwc_present.cpp"
+
 mkdir -p "$OUT"
 
 INC=(
@@ -122,6 +127,7 @@ SRCS=(
   "$SRC/WaydroidClipboard.cpp"
   "$SRC/WaydroidWindow.cpp"
   "$SRC/egl-tools.cpp"
+  "$SRC/hwc_present.cpp"
   "$SRC/modes/waydroid_mode.cpp"
   "$SRC/modes/closed.cpp"
   "$SRC/modes/full-ui.cpp"

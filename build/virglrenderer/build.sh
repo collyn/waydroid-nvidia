@@ -33,6 +33,7 @@ install_netnew() {
 }
 
 install_netnew "$REPO/src/virglrenderer-vtest/vtest_gpu_alloc.c"  "$SRCDIR/vtest/vtest_gpu_alloc.c"
+install_netnew "$REPO/src/virglrenderer-vtest/vtest_present.inc" "$SRCDIR/vtest/vtest_present.inc"
 install_netnew "$REPO/src/virglrenderer-vtest/vtest_gpu_alloc.h"  "$SRCDIR/vtest/vtest_gpu_alloc.h"
 install_netnew "$REPO/src/vtest_alloc_formats.h"                  "$SRCDIR/vtest/vtest_alloc_formats.h"
 

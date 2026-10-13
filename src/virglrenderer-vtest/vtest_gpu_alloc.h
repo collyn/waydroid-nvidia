@@ -40,4 +40,10 @@ int vtest_gpu_alloc_cpu(uint32_t width, uint32_t height, uint32_t drm_format,
  * guest's actual request. Call from the vtest command handler. */
 void vtest_gpu_alloc_set_flags(uint32_t flags);
 
+struct vtest_present;
+int vtest_present_create(int source_fd, uint32_t width, uint32_t height, uint32_t format,
+                        uint32_t stride, uint32_t offset, uint64_t modifier,
+                        struct vtest_present **out, uint32_t *out_stride, int fds[3]);
+int vtest_present_copy(struct vtest_present *present, unsigned slot);
+void vtest_present_destroy(struct vtest_present *present);
 #endif /* VTEST_GPU_ALLOC_H */
