@@ -273,6 +273,7 @@ jobs:
       - name: Test hybrid row-pitch admission
         run: |
           ./tests/run-hwc-pitch-test.sh
+          bash ./tests/run-hwc-window-transition-test.sh
           ./tests/run-present-wire-test.sh
           python3 tests/run-hwc-configure-queue-test.py "$PWD/hwc-src"
       - name: Build hwcomposer.waydroid.so

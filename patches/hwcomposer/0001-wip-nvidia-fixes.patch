@@ -226,7 +226,7 @@ index 1d045e3..73a173b 100644
  };
 \ No newline at end of file
 diff --git a/hwcomposer/hwcomposer.cpp b/hwcomposer/hwcomposer.cpp
-index f509ed7..59c705e 100644
+index f509ed7..3f1ff2b 100644
 --- a/hwcomposer/hwcomposer.cpp
 +++ b/hwcomposer/hwcomposer.cpp
 @@ -17,10 +17,14 @@
@@ -734,7 +734,16 @@ index f509ed7..59c705e 100644
  
      if (window->display->presentation) {
          auto feedback = wp_presentation_feedback(window->display->presentation, window_layer.surface);
-@@ -431,6 +715,35 @@ static void reset_per_commit_state_window(waydroid_hwc_composer_device_1 *pdev)
+@@ -418,6 +702,8 @@ int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1
+     }
+ 
+     window->last_layer_buffer = buf;
++    window->presented_buffers.resize(window->lastLayer);
++    window->presented_buffers[window->lastLayer - 1] = buf;
+ 
+     // Snapshot buffer should be detached by now, clean up
+     window->snapshot_buffer = nullptr;
+@@ -431,6 +717,37 @@ static void reset_per_commit_state_window(waydroid_hwc_composer_device_1 *pdev)
      }
  }
  
@@ -757,6 +766,8 @@ index f509ed7..59c705e 100644
 +    for (auto &[id, window] : pdev->display->windows) {
 +        if (window->last_layer_buffer)
 +            window->last_layer_buffer->unused_frames = 0;
++        for (auto *buf : window->presented_buffers)
++            if (buf) buf->unused_frames = 0;
 +    }
 +    constexpr int kMaxUnusedFrames = 8;
 +    for (auto it = map.begin(); it != map.end(); ) {
@@ -770,7 +781,7 @@ index f509ed7..59c705e 100644
  static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
                     hwc_display_contents_1_t** displays) {
      if (HWC_DISPLAY_PRIMARY >= numDisplays || !displays)
-@@ -441,11 +754,24 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -441,11 +758,24 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
      hwc_display_contents_1_t* contents = displays[HWC_DISPLAY_PRIMARY];
      assert(contents);
  
@@ -798,7 +809,7 @@ index f509ed7..59c705e 100644
      mode->setup_set(pdev, contents);
  
      std::scoped_lock lock(pdev->display->windowsMutex);
-@@ -459,9 +785,13 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -459,9 +789,13 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
          if (layer->flags & HWC_IS_CURSOR_LAYER) {
              found_cursor = true;
              pdev->display->cursor_handler->apply_cursor(pdev, layer, l);
@@ -815,7 +826,7 @@ index f509ed7..59c705e 100644
          }
      }
      if (!found_cursor) {
-@@ -469,6 +799,7 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -469,6 +803,7 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
      }
  
      mode->post_processing(pdev, contents);
@@ -823,7 +834,7 @@ index f509ed7..59c705e 100644
  
      for (auto& [key, window] : pdev->display->windows) {
          if (window->input_region) {
-@@ -483,7 +814,18 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
+@@ -483,7 +818,18 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
  
      if (pdev->display->needHotplug && pdev->procs && pdev->procs->hotplug) {
          pdev->procs->hotplug(pdev->procs, 0, 1);
@@ -843,7 +854,7 @@ index f509ed7..59c705e 100644
          pdev->display->needHotplug = false;
      }
      return 0;
-@@ -650,7 +992,42 @@ static void* hwc_binder_thread(void* data) {
+@@ -650,7 +996,42 @@ static void* hwc_binder_thread(void* data) {
      sp<IWaydroidClipboard> waydroidClipboard;
  
      setpriority(PRIO_PROCESS, 0, HAL_PRIORITY_URGENT_DISPLAY);
@@ -887,7 +898,7 @@ index f509ed7..59c705e 100644
  
      waydroidDisplay = new WaydroidDisplay(pdev->display);
      if (waydroidDisplay == nullptr) {
-@@ -686,8 +1063,34 @@ static void* hwc_binder_thread(void* data) {
+@@ -686,8 +1067,34 @@ static void* hwc_binder_thread(void* data) {
      }
  
      ALOGI("Waydroid hwcomposer services are ready.");
@@ -924,7 +935,7 @@ index f509ed7..59c705e 100644
  
  shutdown:
      // In normal operation, we don't expect the thread pool to shutdown
-@@ -705,6 +1108,28 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -705,6 +1112,28 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
          return -EINVAL;
      }
  
@@ -953,7 +964,7 @@ index f509ed7..59c705e 100644
      waydroid_hwc_composer_device_1 *pdev = new waydroid_hwc_composer_device_1();
      if (!pdev) {
          ALOGE("%s failed to allocate dev", __FUNCTION__);
-@@ -781,6 +1206,9 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -781,6 +1210,9 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
      }
  
      auto first_window = window::create(pdev->display, pdev->should_compose, "Waydroid", "0", {0, 0, 0, 255});
@@ -963,7 +974,7 @@ index f509ed7..59c705e 100644
      if (!property_get_bool("waydroid.background_start", true)) {
          pdev->display->windows.add("Waydroid", std::move(first_window));
          property_set("waydroid.active_apps", "Waydroid");
-@@ -792,13 +1220,27 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -792,13 +1224,27 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
      if (pdev->display->refresh > 1000 && pdev->display->refresh < 1000000)
          pdev->vsync_period_ns = 1000 * 1000 * 1000 / (pdev->display->refresh / 1000);
  
@@ -992,7 +1003,7 @@ index f509ed7..59c705e 100644
  
      if (!pdev->vsync_thread) {
          ret = pthread_create (&pdev->vsync_thread, NULL, hwc_vsync_thread, pdev);
-@@ -823,6 +1265,22 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
+@@ -823,6 +1269,22 @@ static int hwc_open(const struct hw_module_t* module, const char* name,
  }
  
  std::unique_ptr<buffer> cursor_handler::create_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata& metadata, hwc_layer_1 *hwc_layer) {
@@ -1015,7 +1026,7 @@ index f509ed7..59c705e 100644
      return pdev->gralloc_handler.create_buffer(pdev->display, metadata, hwc_layer->handle);
  };
  
-@@ -885,6 +1343,11 @@ int subsurface_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev
+@@ -885,6 +1347,11 @@ int subsurface_cursor_handler::reset_cursor(waydroid_hwc_composer_device_1* pdev
  }
  
  int subsurface_cursor_handler::on_cursor_enter(display* display) {
@@ -1027,7 +1038,7 @@ index f509ed7..59c705e 100644
      if (display->pointer) {
          wl_pointer_set_cursor(display->pointer, display->pointer_enter_serial,
                                nullptr,
-@@ -911,6 +1374,8 @@ std::unique_ptr<buffer> wl_cursor_cursor_handler::create_buffer(waydroid_hwc_com
+@@ -911,6 +1378,8 @@ std::unique_ptr<buffer> wl_cursor_cursor_handler::create_buffer(waydroid_hwc_com
  
  void wl_cursor_cursor_handler::set_cursor(display* display) const {
      assert(display->pointer);
@@ -1036,7 +1047,7 @@ index f509ed7..59c705e 100644
      wl_pointer_set_cursor (display->pointer, display->pointer_enter_serial,
                            cursor_surface_context.surface,
                            round(display->cursor_hotspot.x / display->scale),
-@@ -919,16 +1384,26 @@ void wl_cursor_cursor_handler::set_cursor(display* display) const {
+@@ -919,16 +1388,26 @@ void wl_cursor_cursor_handler::set_cursor(display* display) const {
  
  int wl_cursor_cursor_handler::apply_cursor(waydroid_hwc_composer_device_1* pdev, hwc_layer_1* hwc_layer, size_t hwc_layer_index) {
      if (pdev->display->pointer) {
@@ -1077,7 +1088,7 @@ index 351d780..52d27c6 100644
      }
  }
 diff --git a/hwcomposer/modes/multi-window.cpp b/hwcomposer/modes/multi-window.cpp
-index bfc251a..555f7c7 100644
+index bfc251a..a4d10bf 100644
 --- a/hwcomposer/modes/multi-window.cpp
 +++ b/hwcomposer/modes/multi-window.cpp
 @@ -25,10 +25,15 @@
@@ -1097,16 +1108,39 @@ index bfc251a..555f7c7 100644
  
  window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, layer_info &layer_info) {
      auto &windows = pdev->display->windows;
-@@ -41,7 +46,7 @@ window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, laye
+@@ -41,7 +46,30 @@ window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, laye
          if (it != windows.end()) {
              return it->second.get();
          } else {
 -            return windows.add(pdev, layer_info.tid, layer_info.aid, layer_info.tid, color_transparent);
++            unsigned package_windows = 0;
++            window *candidate = nullptr;
++            std::string old_key;
++            for (const auto &[key, win] : windows) {
++                if (win->appID != layer_info.aid) continue;
++                ++package_windows;candidate = win.get();old_key = key;
++            }
++            std::set<std::string> package_tasks;
++            for (const auto &info : layer_infos.container())
++                if (info.type == LayerSplitType::TID && info.aid == layer_info.aid && m_bounds.count(info.key()))
++                    package_tasks.insert(info.tid);
++            if (candidate && candidate->resize_transition.handoff(hwc_transition_now_ms(),
++                    package_tasks.count(old_key), package_windows, package_tasks.size())) {
++                auto *retained = windows.rekey(old_key, layer_info.tid);
++                if (retained) {
++                    retained->resize_transition.missing = false;
++                    if (retained->input_region)
++                        wl_region_subtract(retained->input_region, 0, 0, INT_MAX, INT_MAX);
++                    ALOGI("resize handoff %s task=%s -> %s: retained toplevel", layer_info.aid.c_str(),
++                          old_key.c_str(), layer_info.tid.c_str());
++                    return retained;
++                }
++            }
 +            return windows.add(pdev, layer_info.tid, layer_info.aid, layer_info.tid, color_opaque_black);
          }
      } else if (layer_info.type == LayerSplitType::RawName) {
          if (layer_info.aid == "InputMethod") {
-@@ -49,7 +54,7 @@ window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, laye
+@@ -49,7 +77,7 @@ window *multi_window_mode::get_window(waydroid_hwc_composer_device_1 *pdev, laye
              if (it != windows.end()) {
                  return it->second.get();
              } else {
@@ -1115,7 +1149,7 @@ index bfc251a..555f7c7 100644
              }
          }
      }
-@@ -70,6 +75,33 @@ int multi_window_mode::prepare(hwc_layer_1* hwc_layer, size_t) {
+@@ -70,6 +98,33 @@ int multi_window_mode::prepare(hwc_layer_1* hwc_layer, size_t) {
  
  int multi_window_mode::setup_set(waydroid_hwc_composer_device_1* pdev, hwc_display_contents_1_t* contents) {
      layer_infos.setup(pdev, contents->hwLayers, contents->numHwLayers);
@@ -1149,7 +1183,21 @@ index bfc251a..555f7c7 100644
      return 0;
  }
  
-@@ -109,6 +141,16 @@ int multi_window_mode::handle_layer(waydroid_hwc_composer_device_1* pdev, hwc_la
+@@ -82,10 +137,12 @@ int multi_window_mode::cleanup_stale_windows(waydroid_hwc_composer_device_1* pde
+             const auto &layer = contents->hwLayers[i];
+             if (can_handle_layer(layer)
+                 && layer_info.type != LayerSplitType::Empty && layer_info.key() == key) {
++                it.second->resize_transition.missing = false;
+                 return false;
+             }
+         }
+-        return true;
++        it.second->resize_transition.missing = true;
++        return !it.second->resize_transition.active(hwc_transition_now_ms());
+     });
+ 
+     pdev->display->ignored_apps.clear();
+@@ -109,6 +166,16 @@ int multi_window_mode::handle_layer(waydroid_hwc_composer_device_1* pdev, hwc_la
      window *window = get_window(pdev, layer_infos[i]);
  
      if (window) {
@@ -1166,7 +1214,7 @@ index bfc251a..555f7c7 100644
          return apply_hwc_layer_to_window(pdev, hwc_layer, i, window);
      } else {
          if (hwc_layer->acquireFenceFd != -1) {
-@@ -118,9 +160,7 @@ int multi_window_mode::handle_layer(waydroid_hwc_composer_device_1* pdev, hwc_la
+@@ -118,9 +185,7 @@ int multi_window_mode::handle_layer(waydroid_hwc_composer_device_1* pdev, hwc_la
      }
  }
  
@@ -1177,13 +1225,14 @@ index bfc251a..555f7c7 100644
 +int multi_window_mode::post_processing(waydroid_hwc_composer_device_1 *pdev, hwc_display_contents_1_t *) {
 +    neutralize_remaining_subsurfaces(pdev);
      return 0;
- }
+-}
 \ No newline at end of file
++}
 diff --git a/hwcomposer/modes/multi-window.h b/hwcomposer/modes/multi-window.h
-index e5afee6..8a8a16c 100644
+index e5afee6..78c4372 100644
 --- a/hwcomposer/modes/multi-window.h
 +++ b/hwcomposer/modes/multi-window.h
-@@ -27,8 +27,12 @@
+@@ -27,10 +27,14 @@
  
  #include "waydroid_mode.h"
  
@@ -1194,8 +1243,18 @@ index e5afee6..8a8a16c 100644
      split_layer_names_helper layer_infos;
 +    std::unordered_map<std::string, hwc_rect_t> m_bounds;
  
-     static window *get_window(waydroid_hwc_composer_device_1 *pdev, layer_info &layer_info);
+-    static window *get_window(waydroid_hwc_composer_device_1 *pdev, layer_info &layer_info);
++    window *get_window(waydroid_hwc_composer_device_1 *pdev, layer_info &layer_info);
      static bool can_handle_layer(const hwc_layer_1& layer);
+ 
+   public:
+@@ -41,4 +45,4 @@ class multi_window_mode : public waydroid_mode {
+                               hwc_display_contents_1_t* contents) final;
+     int handle_layer(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index) final;
+     int post_processing(waydroid_hwc_composer_device_1 *pdev, hwc_display_contents_1_t *contents) final;
+-};
+\ No newline at end of file
++};
 diff --git a/hwcomposer/modes/single-window.cpp b/hwcomposer/modes/single-window.cpp
 index 14ffccb..f3027a6 100644
 --- a/hwcomposer/modes/single-window.cpp
@@ -1261,10 +1320,10 @@ index 14ffccb..f3027a6 100644
      }
  
 diff --git a/hwcomposer/modes/waydroid_mode.cpp b/hwcomposer/modes/waydroid_mode.cpp
-index a4a214a..0428c3d 100644
+index a4a214a..e0d04b2 100644
 --- a/hwcomposer/modes/waydroid_mode.cpp
 +++ b/hwcomposer/modes/waydroid_mode.cpp
-@@ -35,20 +35,41 @@ void clear_open_windows(waydroid_hwc_composer_device_1 *pdev) {
+@@ -35,20 +35,43 @@ void clear_open_windows(waydroid_hwc_composer_device_1 *pdev) {
  void neutralize_remaining_subsurfaces(waydroid_hwc_composer_device_1 *pdev) {
      auto& windows = pdev->display->windows;
      for (const auto& [key, window] : windows) {
@@ -1273,6 +1332,8 @@ index a4a214a..0428c3d 100644
 -            continue;
 -        // Neutralize unused surfaces
 -        for (size_t l = window->lastLayer; l < window->layers.size(); ++l) {
++        if (window->resize_transition.holding(hwc_transition_now_ms())) continue;
++        window->presented_buffers.resize(window->lastLayer);
 +        /* Always detach leftover subsurfaces, including lastLayer==0
 +         * (no overlay this frame). AnTuTu 3D add/remove/resize without
 +         * HWC_GEOMETRY_CHANGED used to leave a stale larger subsurface
@@ -1313,7 +1374,7 @@ index a4a214a..0428c3d 100644
          if (m_first_skipped == UNSET_VALUE) {
              m_first_skipped = i;
          }
-@@ -61,8 +82,13 @@ void skipped_layers_helper::setup_for_each_layer(size_t i, const hwc_layer_1 &la
+@@ -61,8 +84,13 @@ void skipped_layers_helper::setup_for_each_layer(size_t i, const hwc_layer_1 &la
  
  void skipped_layers_helper::setup_set(hwc_layer_1* layers, size_t size) {
      if (m_framebuffer_target_index >= size) {
@@ -1329,7 +1390,7 @@ index a4a214a..0428c3d 100644
      }
      m_framebuffer_target = &layers[m_framebuffer_target_index];
  }
-@@ -133,13 +159,19 @@ void split_layer_names_helper::setup(waydroid_hwc_composer_device_1 *pdev, const
+@@ -133,13 +161,19 @@ void split_layer_names_helper::setup(waydroid_hwc_composer_device_1 *pdev, const
  }
  
  const std::string& layer_info::key() const {
@@ -1351,6 +1412,13 @@ index a4a214a..0428c3d 100644
  }
  
  layer_info &split_layer_names_helper::operator[](size_t i) {
+@@ -147,4 +181,4 @@ layer_info &split_layer_names_helper::operator[](size_t i) {
+ }
+ const std::vector<layer_info> &split_layer_names_helper::container() const {
+     return layer_infos;
+-}
+\ No newline at end of file
++}
 diff --git a/hwcomposer/modes/waydroid_mode.h b/hwcomposer/modes/waydroid_mode.h
 index a93cb50..2d5daa8 100644
 --- a/hwcomposer/modes/waydroid_mode.h
@@ -1517,7 +1585,7 @@ index 000b388..0409349 100644
                  m_draw_framebuffer_at = i;
              }
 diff --git a/hwcomposer/wayland-hwc.cpp b/hwcomposer/wayland-hwc.cpp
-index 0bd2f35..9099e06 100644
+index 0bd2f35..b83459d 100644
 --- a/hwcomposer/wayland-hwc.cpp
 +++ b/hwcomposer/wayland-hwc.cpp
 @@ -52,6 +52,7 @@
@@ -1619,7 +1687,14 @@ index 0bd2f35..9099e06 100644
  
      wp_viewport_set_source(viewport,
                             wl_fixed_from_double(x),
-@@ -380,6 +429,27 @@ void window::reset_per_set_state() {
+@@ -374,12 +423,34 @@ void surface_context::set_display_frame(hwc_rect_t rect, double scale) {
+ 
+ void window::reset_per_set_state() {
+     lastLayer = 0;
++    if (resize_transition.holding(hwc_transition_now_ms())) return;
+     last_layer_buffer = nullptr;
+     if (input_region) {
+         wl_region_subtract(input_region, 0, 0, INT_MAX, INT_MAX);
      }
  }
  
@@ -1647,7 +1722,7 @@ index 0bd2f35..9099e06 100644
  void window::set_maximize(bool enabled) {
      if (xdg_toplevel) {
          if (enabled) {
-@@ -472,6 +542,55 @@ static const struct wp_fractional_scale_v1_listener fractional_scale_listener =
+@@ -472,6 +543,55 @@ static const struct wp_fractional_scale_v1_listener fractional_scale_listener =
      .preferred_scale = fractional_scale_handle_preferred_scale
  };
  
@@ -1703,7 +1778,7 @@ index 0bd2f35..9099e06 100644
  std::unique_ptr<window>
  window::create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color)
  {
-@@ -479,11 +598,37 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -479,11 +599,37 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
      if (!window)
          return nullptr;
  
@@ -1741,7 +1816,7 @@ index 0bd2f35..9099e06 100644
      window->taskID = std::move(taskID);
      window->dedicated_background_surface = true;
      window->bg_buffer = nullptr;
-@@ -506,20 +651,28 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -506,20 +652,28 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          window->xdg_surface =
                  xdg_wm_base_get_xdg_surface(display->wm_base, window->surface);
          assert(window->xdg_surface);
@@ -1771,7 +1846,7 @@ index 0bd2f35..9099e06 100644
      }
  
      if (display->isMaximized || calibrating) {
-@@ -540,7 +693,8 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -540,7 +694,8 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
      wl_surface_commit(window->surface);
      // Wait for first configure event
      do {
@@ -1781,7 +1856,7 @@ index 0bd2f35..9099e06 100644
      } while (!window->configured);
  
      if (calibrating) {
-@@ -549,6 +703,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -549,6 +704,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
              // We only support one global scale
              fs = wp_fractional_scale_manager_v1_get_fractional_scale(
                      display->fractional_scale_manager, window->surface);
@@ -1789,7 +1864,7 @@ index 0bd2f35..9099e06 100644
              wp_fractional_scale_v1_add_listener(fs, &fractional_scale_listener, display);
          }
  
-@@ -561,9 +716,11 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -561,9 +717,11 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          if (window->viewport && display->req_width && display->req_height)
              wp_viewport_set_destination(window->viewport, display->req_width, display->req_height);
          wl_surface_commit(window->surface);
@@ -1802,7 +1877,7 @@ index 0bd2f35..9099e06 100644
              wp_fractional_scale_v1_destroy(fs);
          }
  
-@@ -597,14 +754,17 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -597,14 +755,17 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          wl_region_destroy(region);
      }
  
@@ -1822,7 +1897,7 @@ index 0bd2f35..9099e06 100644
          wl_surface_commit(window->surface);
          return window;
      } else if (!use_subsurfaces) {
-@@ -615,16 +775,27 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
+@@ -615,16 +776,27 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
          wl_subsurface_set_desync(window->layers[0].subsurface);
      }
  
@@ -1855,7 +1930,7 @@ index 0bd2f35..9099e06 100644
  
      return window;
  }
-@@ -732,6 +903,24 @@ ensure_pipe(struct display* display, int input_type)
+@@ -732,6 +904,24 @@ ensure_pipe(struct display* display, int input_type)
      event[n].value = value_;                       \
      n++;
  
@@ -1880,7 +1955,7 @@ index 0bd2f35..9099e06 100644
  static void
  send_key_event(display *data, uint32_t key, wl_keyboard_key_state state)
  {
-@@ -856,6 +1045,9 @@ static const struct wl_keyboard_listener keyboard_listener = {
+@@ -856,6 +1046,9 @@ static const struct wl_keyboard_listener keyboard_listener = {
      keyboard_handle_repeat_info,
  };
  
@@ -1890,7 +1965,7 @@ index 0bd2f35..9099e06 100644
  static void
  pointer_handle_enter(void *data, struct wl_pointer *,
                       uint32_t serial, struct wl_surface *surface,
-@@ -877,9 +1069,68 @@ pointer_handle_leave(void *data, struct wl_pointer *,
+@@ -877,9 +1070,68 @@ pointer_handle_leave(void *data, struct wl_pointer *,
                       uint32_t, struct wl_surface *)
  {
      struct display *display = (struct display *)data;
@@ -1959,7 +2034,7 @@ index 0bd2f35..9099e06 100644
  static void
  pointer_handle_motion(void *data, struct wl_pointer *,
                        uint32_t, wl_fixed_t sx, wl_fixed_t sy)
-@@ -890,16 +1141,9 @@ pointer_handle_motion(void *data, struct wl_pointer *,
+@@ -890,16 +1142,9 @@ pointer_handle_motion(void *data, struct wl_pointer *,
      int x, y;
      unsigned int res, n = 0;
  
@@ -1976,7 +2051,7 @@ index 0bd2f35..9099e06 100644
      x = wl_fixed_to_int(sx);
      y = wl_fixed_to_int(sy);
      if (display->scale != 1) {
-@@ -908,14 +1152,32 @@ pointer_handle_motion(void *data, struct wl_pointer *,
+@@ -908,14 +1153,32 @@ pointer_handle_motion(void *data, struct wl_pointer *,
      }
      x += display->layers[display->pointer_surface].x;
      y += display->layers[display->pointer_surface].y;
@@ -2013,7 +2088,7 @@ index 0bd2f35..9099e06 100644
  
      res = write(display->input_fd[INPUT_POINTER], &event, sizeof(event));
      if (res < sizeof(event))
-@@ -934,6 +1196,9 @@ handle_relative_motion(void *data, struct zwp_relative_pointer_v1*,
+@@ -934,6 +1197,9 @@ handle_relative_motion(void *data, struct zwp_relative_pointer_v1*,
      static double acc_x = 0;
      static double acc_y = 0;
  
@@ -2023,7 +2098,7 @@ index 0bd2f35..9099e06 100644
      if (ensure_pipe(display, INPUT_POINTER))
          return;
  
-@@ -970,12 +1235,33 @@ pointer_handle_button(void *data, struct wl_pointer *,
+@@ -970,12 +1236,33 @@ pointer_handle_button(void *data, struct wl_pointer *,
      struct timespec rt;
      unsigned int res, n = 0;
  
@@ -2058,7 +2133,7 @@ index 0bd2f35..9099e06 100644
      if (clock_gettime(CLOCK_MONOTONIC, &rt) == -1) {
          ALOGE("%s:%d error in touch clock_gettime: %s",
                __FILE__, __LINE__, strerror(errno));
-@@ -999,6 +1285,9 @@ pointer_handle_axis(void *data, struct wl_pointer *,
+@@ -999,6 +1286,9 @@ pointer_handle_axis(void *data, struct wl_pointer *,
      double fVal = wl_fixed_to_double(value) / 10.0f;
      double step = 1.0f;
  
@@ -2068,7 +2143,7 @@ index 0bd2f35..9099e06 100644
      if (ensure_pipe(display, INPUT_POINTER))
          return;
  
-@@ -1147,6 +1436,7 @@ touch_handle_down(void *data, struct wl_touch *,
+@@ -1147,6 +1437,7 @@ touch_handle_down(void *data, struct wl_touch *,
      }
      x += display->layers[surface].x;
      y += display->layers[surface].y;
@@ -2076,7 +2151,7 @@ index 0bd2f35..9099e06 100644
  
      ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
      ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
-@@ -1219,6 +1509,7 @@ touch_handle_motion(void *data, struct wl_touch *,
+@@ -1219,6 +1510,7 @@ touch_handle_motion(void *data, struct wl_touch *,
          }
          x += display->layers[display->touch_surfaces[id]].x;
          y += display->layers[display->touch_surfaces[id]].y;
@@ -2084,7 +2159,7 @@ index 0bd2f35..9099e06 100644
  
          ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
          ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
-@@ -1346,8 +1637,14 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
+@@ -1346,8 +1638,14 @@ seat_handle_capabilities(void *data, struct wl_seat *seat, uint32_t wl_caps)
          d->ptrPrvX = 0;
          d->ptrPrvY = 0;
          d->reverseScroll = property_get_bool("persist.waydroid.reverse_scrolling", false);
@@ -2101,7 +2176,7 @@ index 0bd2f35..9099e06 100644
          wl_pointer_add_listener(d->pointer, &pointer_listener, d);
      } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && d->pointer) {
          remove(INPUT_PIPE_NAME[INPUT_POINTER]);
-@@ -1475,10 +1772,12 @@ static const struct wl_output_listener output_listener = {
+@@ -1475,10 +1773,12 @@ static const struct wl_output_listener output_listener = {
  };
  
  static void
@@ -2116,7 +2191,7 @@ index 0bd2f35..9099e06 100644
  }
  
  static const struct wp_presentation_listener presentation_listener = {
-@@ -1687,6 +1986,7 @@ tablet_tool_motion(void *data, struct zwp_tablet_tool_v2 *,
+@@ -1687,6 +1987,7 @@ tablet_tool_motion(void *data, struct zwp_tablet_tool_v2 *,
          }
          x += display->layers[display->tablet_surface].x;
          y += display->layers[display->tablet_surface].y;
@@ -2124,17 +2199,67 @@ index 0bd2f35..9099e06 100644
  
          ADD_EVENT(EV_ABS, ABS_X, x);
          ADD_EVENT(EV_ABS, ABS_Y, y);
-@@ -2038,6 +2338,9 @@ void open_windows::erase(const key_type& key) {
+@@ -2038,6 +2339,59 @@ void open_windows::erase(const key_type& key) {
      }
  }
  
 +/* set by start_wayland_thread(); create_display() only ever builds one display */
 +static struct display *g_wayland_display = nullptr;
++static std::mutex g_transition_mutex;
++
++/* Optional bridge ABI. Called outside the bridge's Wayland mutex, never by
++ * a compositor callback. No C++ object layout crosses the ABI boundary. */
++extern "C" int anvil_hwc_window_transition_v1(int operation, int task,
++                                              const char *package) {
++    std::scoped_lock registry_lock(g_transition_mutex);
++    auto *d = g_wayland_display;
++    if (!d || d->wayland_dead) return 0;
++    std::scoped_lock window_lock(d->windowsMutex);
++    auto now = hwc_transition_now_ms();
++    if (operation == 3) {
++        std::vector<std::string> expired;
++        for (const auto &it : d->windows) {
++            const auto &state = it.second->resize_transition;
++            if (state.missing && !state.active(now)) expired.push_back(it.first);
++        }
++        for (const auto &key : expired) d->windows.erase(key);
++        return 1;
++    }
++    if (!package || task <= 0) return 0;
++    if (operation == 5) {
++        window *candidate = nullptr;
++        unsigned matches = 0;
++        for (const auto &it : d->windows)
++            if (it.second->appID == package) { candidate = it.second.get(); ++matches; }
++        if (matches != 1 || !candidate->resize_transition.holding(now)) return 0;
++        // Android still reports a visible task: loading can outlast the grace
++        // interval. Renew while it lives; Close and missing tasks do not renew.
++        return candidate->resize_transition.refresh(now);
++    }
++    auto it = d->windows.find(std::to_string(task));
++    if (operation == 2 && it == d->windows.end()) {
++        // Close may arrive after Android changed task but before the first
++        // replacement layer. Cancel the unique retained package window too.
++        window *candidate = nullptr;
++        unsigned matches = 0;
++        for (const auto &entry : d->windows)
++            if (entry.second->appID == package) {candidate = entry.second.get(); ++matches;}
++        if (matches == 1 && candidate->resize_transition.active(now)) {
++            candidate->resize_transition.close();return 1;
++        }
++    }
++    if (it == d->windows.end() || it->second->appID != package) return 0;
++    auto &state = it->second->resize_transition;
++    if (operation == 1) return state.begin(now);
++    if (operation == 2) { state.close(); return 1; }
++    if (operation == 4) { state.deadline_ms = 0; return 1; }
++    return 0;
++}
 +
  static void* hwc_wayland_thread(void* data) {
      auto* display = static_cast<struct wl_display*>(data);
      int ret = 0;
-@@ -2047,9 +2350,40 @@ static void* hwc_wayland_thread(void* data) {
+@@ -2047,9 +2401,40 @@ static void* hwc_wayland_thread(void* data) {
      while (ret != -1)
          ret = wl_display_dispatch(display);
  
@@ -2178,7 +2303,7 @@ index 0bd2f35..9099e06 100644
  }
  
  struct display *
-@@ -2064,9 +2398,18 @@ create_display(const char *gralloc)
+@@ -2064,9 +2449,18 @@ create_display(const char *gralloc)
      display->system_version = property_get_int32("ro.system.build.version.sdk", 0);
      display->gtype = get_gralloc_type(gralloc);
      display->refresh = 0;
@@ -2197,7 +2322,7 @@ index 0bd2f35..9099e06 100644
      display->display = wl_display_connect(NULL);
      ALOGI("WAYLAND_DISPLAY: %s", getenv("WAYLAND_DISPLAY"));
      ALOGI("XDG_RUNTIME_DIR: %s", getenv("XDG_RUNTIME_DIR"));
-@@ -2080,29 +2423,55 @@ create_display(const char *gralloc)
+@@ -2080,29 +2474,62 @@ create_display(const char *gralloc)
      umask(0);
      mkdir("/dev/input", S_IRWXO | S_IRWXG | S_IRWXU);
      chown("/dev/input", 1000, 1000);
@@ -2241,7 +2366,10 @@ index 0bd2f35..9099e06 100644
 +    /* The thread needs both the raw wl_display (to dispatch) and our struct
 +     * display (to flag wayland_dead for hwc_binder_thread), so stash the latter in
 +     * a file-scope pointer: create_display() only ever produces one. */
-+    g_wayland_display = display;
++    {
++        std::scoped_lock lock(g_transition_mutex);
++        g_wayland_display = display;
++    }
 +    if (pthread_create(&display->wayland_thread, nullptr, hwc_wayland_thread, display->display) != 0) {
 +        ALOGE("Couldn't create wayland thread");
 +        return;
@@ -2254,6 +2382,10 @@ index 0bd2f35..9099e06 100644
  {
 -    pthread_kill(display->wayland_thread, SIGTERM);
 -    pthread_join(display->wayland_thread, nullptr);
++    {
++        std::scoped_lock lock(g_transition_mutex);
++        if (g_wayland_display == display) g_wayland_display = nullptr;
++    }
 +    if (display->wayland_thread_started) {
 +        pthread_kill(display->wayland_thread, SIGTERM);
 +        pthread_join(display->wayland_thread, nullptr);
@@ -2263,7 +2395,7 @@ index 0bd2f35..9099e06 100644
      if (display->wm_base)
          xdg_wm_base_destroy(display->wm_base);
 diff --git a/hwcomposer/wayland-hwc.h b/hwcomposer/wayland-hwc.h
-index 82ebbd5..3a7fb49 100644
+index 82ebbd5..1437937 100644
 --- a/hwcomposer/wayland-hwc.h
 +++ b/hwcomposer/wayland-hwc.h
 @@ -30,6 +30,7 @@
@@ -2274,7 +2406,15 @@ index 82ebbd5..3a7fb49 100644
  #include <stdint.h>
  #include <stdio.h>
  #include <stdlib.h>
-@@ -107,21 +108,26 @@ struct buffer_metadata {
+@@ -60,6 +61,7 @@
+ #include <functional>
+ #include <unordered_map>
+ #include <unordered_set>
++#include "hwc_window_transition.h"
+ 
+ using ::android::sp;
+ using ::vendor::waydroid::task::V1_0::IWaydroidTask;
+@@ -107,21 +109,26 @@ struct buffer_metadata {
      uint32_t width;
      uint32_t pixel_stride;
      uint32_t format;
@@ -2306,7 +2446,7 @@ index 82ebbd5..3a7fb49 100644
      struct wl_buffer *wl_buffer;
  
      buffer_handle_t handle;
-@@ -130,6 +136,10 @@ struct buffer {
+@@ -130,6 +137,10 @@ struct buffer {
      bool isShm;
      void *shm_data;
      int size;
@@ -2317,7 +2457,7 @@ index 82ebbd5..3a7fb49 100644
  
      ~buffer();
  };
-@@ -162,8 +172,9 @@ struct surface_context {
+@@ -162,8 +173,9 @@ struct surface_context {
      void damage_surface(int32_t x, int32_t y, int32_t width, int32_t height);
      void set_buffer_transform(BufferTransform transform);
      void set_buffer_scale(double scale);
@@ -2329,7 +2469,16 @@ index 82ebbd5..3a7fb49 100644
      // TODO: This should not require scale. Scaling handling is broken
      void set_display_frame(hwc_rect_t rect, double scale);
  };
-@@ -212,6 +223,18 @@ struct window {
+@@ -204,6 +216,8 @@ struct window {
+ 
+     std::string appID;
+     std::string taskID;
++    hwc_window_transition resize_transition;
++    std::vector<buffer *> presented_buffers;
+ 
+     std::atomic<bool> configured;
+ 
+@@ -212,6 +226,18 @@ struct window {
      int lastLayer;
      struct buffer *last_layer_buffer;
  
@@ -2348,7 +2497,24 @@ index 82ebbd5..3a7fb49 100644
      ~window();
  
      static std::unique_ptr<window> create(struct display *display, bool use_subsurfaces, std::string appID, std::string taskID, hwc_color_t color);
-@@ -300,7 +323,8 @@ struct cursor_handler {
+@@ -277,6 +303,16 @@ class open_windows {
+     void clear();
+     void erase(const_iterator pos);
+     void erase(const key_type& key);
++    window *rekey(const key_type& old_key, const key_type& new_key) {
++        if (windows.find(new_key) != windows.end()) return nullptr;
++        auto node = windows.extract(old_key);
++        if (node.empty()) return nullptr;
++        node.key() = new_key;
++        node.mapped()->taskID = new_key;
++        auto *result = node.mapped().get();
++        windows.insert(std::move(node));
++        return result;
++    }
+     template<class Pred>
+     void erase_if(Pred pred) {
+         update([&](){
+@@ -300,7 +336,8 @@ struct cursor_handler {
  };
  
  struct display {
@@ -2358,7 +2524,7 @@ index 82ebbd5..3a7fb49 100644
  
      struct wl_display *display;
      struct wl_registry *registry;
-@@ -314,6 +338,10 @@ struct display {
+@@ -314,6 +351,10 @@ struct display {
      struct wl_touch *touch;
      struct wl_output *output;
      struct wp_presentation *presentation;
@@ -2369,7 +2535,7 @@ index 82ebbd5..3a7fb49 100644
      struct wp_viewporter *viewporter;
      struct android_wlegl *android_wlegl;
      struct zwp_linux_dmabuf_v1 *dmabuf;
-@@ -335,6 +363,11 @@ struct display {
+@@ -335,6 +376,11 @@ struct display {
      int input_fd[INPUT_TOTAL];
      int ptrPrvX;
      int ptrPrvY;
@@ -2381,7 +2547,7 @@ index 82ebbd5..3a7fb49 100644
      double wheelAccumulatorX;
      double wheelAccumulatorY;
      bool wheelEvtIsDiscrete;
-@@ -384,6 +417,11 @@ struct display {
+@@ -384,6 +430,11 @@ struct display {
      bool supports_cursor_hw_buffer;
  
      bool isMaximized;
@@ -2393,7 +2559,7 @@ index 82ebbd5..3a7fb49 100644
      sp<IWaydroidTask> task;
  
      const hwc_procs_t *procs;
-@@ -399,5 +437,6 @@ snapshot_inactive_app_window(struct display *display, struct window *window);
+@@ -399,5 +450,6 @@ snapshot_inactive_app_window(struct display *display, struct window *window);
  
  struct display *
  create_display(const char* gralloc);

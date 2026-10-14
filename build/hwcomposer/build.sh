@@ -53,6 +53,7 @@ fi
 
 # Canonical admission predicate, also compiled by the portable regression test.
 install -m 0644 "$HERE/../../src/hwc_pitch.h" "$SRC/hwc_pitch.h"
+install -m 0644 "$HERE/../../src/hwc_window_transition.h" "$SRC/hwc_window_transition.h"
 
 install -m 0644 "$HERE/../../src/hwc_present_io.h" "$SRC/hwc_present_io.h"
 install -m 0644 "$HERE/../../src/hwc_present_policy.h" "$SRC/hwc_present_policy.h"
